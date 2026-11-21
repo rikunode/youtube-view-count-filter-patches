@@ -58,20 +58,11 @@ private object EmptyComponentBuilderFingerprint : Fingerprint(
     parameters = listOf("L"),
 )
 
-private object SettingsScreenBuilderFingerprint : Fingerprint(
-    name = "run",
-    accessFlags = listOf(AccessFlags.PUBLIC, AccessFlags.FINAL),
-    parameters = listOf(),
+private object SettingsScreenFingerprint : Fingerprint(
+    definingClass = "Lgek;",
+    name = "u",
+    parameters = listOf("Landroidx/preference/PreferenceScreen;"),
     returnType = "V",
-    filters = listOf(
-        string(":android:show_fragment_args"),
-        methodCall(
-            opcode = Opcode.INVOKE_VIRTUAL,
-            parameters = listOf(),
-            returnType = "Landroidx/preference/PreferenceScreen;",
-        ),
-        opcode(Opcode.RETURN_VOID),
-    ),
 )
 
 @Suppress("unused")
@@ -120,33 +111,29 @@ val viewCountFilterPatch = patch(
         )
         println("Rikunode view-count hook: ${converter.definingClass}->${converter.name}")
 
-        val settings = SettingsScreenBuilderFingerprint
-        val screenGetter = settings.instructionMatches[1].methodReference
-        val fragmentField = settings.classDef.fields.single {
-            it.type == screenGetter.definingClass
+        // Lgek.u(PreferenceScreen) is the single APK-side write point for the
+        // active settings screen. Restrict installation to the main Lpty fragment.
+        val run = SettingsScreenFingerprint.method
+        require(run.definingClass == "Lgek;") {
+            "Settings screen setter resolved to unexpected class: ${run.definingClass}"
         }
-        val run = settings.method
-        val runInstructions = run.implementation!!.instructions.toList()
-        val returnIndex = runInstructions.indexOfLast { it.opcode == Opcode.RETURN_VOID }
-        require(returnIndex >= 0) { "Could not locate native YouTube settings return" }
-        val settingRegister = run.getFreeRegisterProvider(
-            returnIndex, 1, run.p0Register
-        ).getFreeRegister4Bit()
+        // YouTube 21.30.216: registers=4, p0=v2, p1=v3. The original
+        // method overwrites v3 with integer 1 after assigning the screen,
+        // so injection at the return would pass an integer to install().
+        require(run.implementation!!.registerCount == 4 && run.p0Register == 2) {
+            "Unexpected Lgek.u register layout"
+        }
         run.addInstructionsWithLabels(
-            returnIndex,
+            0,
             """
-                move-object/from16 v$settingRegister, p0
-                iget-object v$settingRegister, v$settingRegister, $fragmentField
-                if-eqz v$settingRegister, :viewcount_no_settings
-                invoke-virtual { v$settingRegister }, $screenGetter
-                move-result-object v$settingRegister
-                if-eqz v$settingRegister, :viewcount_no_settings
-                invoke-static { v$settingRegister }, $SETTINGS_ENTRY->install(Ljava/lang/Object;)V
+                instance-of v0, v2, Lpty;
+                if-eqz v0, :viewcount_no_settings
+                invoke-static { v3 }, $SETTINGS_ENTRY->install(Ljava/lang/Object;)V
                 :viewcount_no_settings
                 nop
             """.trimIndent(),
         )
-        println("Rikunode settings hook: ${run.definingClass}->${run.name}")
+        println("Rikunode settings hook: ${run.definingClass}->${run.name} gated by Lpty")
 
         resourceXml("AndroidManifest.xml").use { manifest ->
             val application = manifest.root.children("application").single()
