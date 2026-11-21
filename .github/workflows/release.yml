@@ -34,7 +34,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import zipfile
-          path = 'patches/build/libs/patches-0.1.7.mpp'
+          path = 'patches/build/libs/patches-0.1.8.mpp'
           with zipfile.ZipFile(path) as bundle:
               dex = bundle.getinfo('classes.dex')
               assert dex.file_size > 0, 'classes.dex is empty'
@@ -45,7 +45,7 @@ jobs:
       - name: Prepare assets and SHA256SUMS
         run: |
           mkdir -p dist
-          cp patches/build/libs/patches-0.1.7.mpp dist/patches-0.1.7.mpp
+          cp patches/build/libs/patches-0.1.8.mpp dist/patches-0.1.8.mpp
           cd dist
           sha256sum *.mpp > SHA256SUMS
           sha256sum -c SHA256SUMS
@@ -58,8 +58,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/patches-0.1.7.mpp
+            dist/patches-0.1.8.mpp
             dist/SHA256SUMS
+          body: |
+            Diagnostic-only v0.1.8: records bounded, deduplicated wls.k() identifier strings and occurrence counts in SharedPreferences; adds a Probe list with Copy and Clear. Filtering behavior remains identical to v0.1.7 (Home, Search, Subscriptions; same thresholds and fail-open). Related-video filtering is NOT included.
           generate_release_notes: false
           draft: false
           prerelease: true

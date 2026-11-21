@@ -1,6 +1,9 @@
 package app.rikunode.morphe.extension.youtube.settings;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.os.Bundle;
 import android.content.SharedPreferences;
 import android.text.InputType;
@@ -13,6 +16,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import app.rikunode.morphe.extension.youtube.filters.ViewCountFilter;
+import app.rikunode.morphe.extension.youtube.filters.ViewCountProbe;
 
 public final class ViewCountSettingsActivity extends Activity {
     private SharedPreferences preferences;
@@ -57,6 +61,33 @@ public final class ViewCountSettingsActivity extends Activity {
             }
         });
         column.addView(save);
+
+        TextView probeHeading = new TextView(this);
+        probeHeading.setText("診断 / Probe");
+        probeHeading.setTextSize(19);
+        column.addView(probeHeading);
+        TextView probeLog = new TextView(this);
+        probeLog.setTextIsSelectable(true);
+        probeLog.setText(ViewCountProbe.report(this));
+        column.addView(probeLog);
+
+        Button copy = new Button(this);
+        copy.setText("コピー / Copy");
+        copy.setOnClickListener(view -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("View count probe", ViewCountProbe.report(this)));
+                Toast.makeText(this, "コピーしました / Copied", Toast.LENGTH_SHORT).show();
+            }
+        });
+        column.addView(copy);
+        Button clear = new Button(this);
+        clear.setText("消去 / Clear");
+        clear.setOnClickListener(view -> {
+            ViewCountProbe.clear(this);
+            probeLog.setText(ViewCountProbe.report(this));
+        });
+        column.addView(clear);
         setContentView(scroll);
     }
 

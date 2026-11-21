@@ -29,6 +29,7 @@ public final class ViewCountFilter {
             SharedPreferences prefs = app.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE);
             Method pathMethod = component.getClass().getMethod("k");
             Object rawPath = pathMethod.invoke(component);
+            try { ViewCountProbe.record(app, rawPath); } catch (Throwable ignored) { }
             String path = rawPath == null ? "" : rawPath.toString().toLowerCase(Locale.ROOT);
 
             String key;
