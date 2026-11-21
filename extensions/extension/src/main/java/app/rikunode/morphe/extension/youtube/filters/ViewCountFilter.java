@@ -31,10 +31,6 @@ public final class ViewCountFilter {
             Object rawPath = pathMethod.invoke(component);
             String path = rawPath == null ? "" : rawPath.toString().toLowerCase(Locale.ROOT);
 
-            // M1 opt-in fixed-marker experiment, disabled by default and in normal use.
-            if (prefs.getBoolean("rikunode_viewcount_m1_test", false)
-                    && path.contains("video")) return true;
-
             String key;
             if (path.contains("search")) key = "rikunode_viewcount_search";
             else if (path.contains("subscription")) key = "rikunode_viewcount_subscriptions";

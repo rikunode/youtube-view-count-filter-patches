@@ -40,8 +40,6 @@ public final class ViewCountSettingsActivity extends Activity {
                 preferences.getLong("rikunode_viewcount_less_than", 1000L));
         upper = number(column, "この回数超過を非表示 / Hide above",
                 preferences.getLong("rikunode_viewcount_greater_than", 1_000_000_000_000L));
-        toggle(column, "M1動作確認（video要素を非表示）/ Test only",
-                "rikunode_viewcount_m1_test");
 
         Button save = new Button(this);
         save.setText("保存 / Save");
