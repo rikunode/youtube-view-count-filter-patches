@@ -12,6 +12,7 @@ import app.morphe.patcher.patch.classDefBy
 import app.morphe.patcher.patch.patch
 import app.morphe.patcher.patch.resourceFile
 import app.morphe.patcher.patch.resourceXml
+import app.morphe.patcher.patch.resourceXmlOrNull
 import app.morphe.patcher.util.getFreeRegisterProvider
 import app.morphe.patcher.util.p0Register
 import com.android.tools.smali.dexlib2.AccessFlags
@@ -139,6 +140,10 @@ val viewCountFilterPatch = patch(
         // Official Morphe's settings patch merges this declaration into its own
         // settings screen when both bundles are applied in one session.
         // The native settings hook remains the standalone fallback.
+        val initialPackage = resourceXml("AndroidManifest.xml").use { manifest ->
+            manifest.root.attribute("package")
+                ?: error("APK manifest has no package name")
+        }
         resourceFile("morphe_addon_prefs.xml").writeText(
             """<morphe-add-on-preferences xmlns:android="http://schemas.android.com/apk/res/android">
                 <screen>
@@ -146,7 +151,7 @@ val viewCountFilterPatch = patch(
                         android:title="View count filter / 再生回数フィルタ"
                         android:summary="独立した再生回数フィルタの設定">
                         <intent android:action="android.intent.action.VIEW"
-                            android:targetPackage="com.google.android.youtube"
+                            android:targetPackage="$initialPackage"
                             android:targetClass="$ACTIVITY" />
                     </Preference>
                 </screen>
@@ -158,6 +163,26 @@ val viewCountFilterPatch = patch(
     // Re-assert component declarations after all patch execute phases. Earlier
     // manifest edits are not sufficient evidence that the final APK retains them.
     finalize {
+        val finalPackage = resourceXml("AndroidManifest.xml").use { manifest ->
+            manifest.root.attribute("package")
+                ?: error("Final APK manifest has no package name")
+        }
+        // Official settings may merge the add-on before or after this finalize.
+        // Update both the declaration and any already-merged settings variants.
+        val settingsFiles = listOf(
+            "morphe_addon_prefs.xml",
+            "res/xml/morphe_prefs.xml",
+            "res/xml/morphe_prefs_icons.xml",
+            "res/xml/morphe_prefs_icons_bold.xml",
+        )
+        settingsFiles.forEach { file ->
+            resourceXmlOrNull(file)?.use { xml ->
+                xml.elements("intent")
+                    .filter { it.attribute("android:targetClass") == ACTIVITY }
+                    .forEach { it.setAttribute("android:targetPackage", finalPackage) }
+            }
+        }
+        println("Rikunode settings target package: $finalPackage")
         resourceXml("AndroidManifest.xml").use { manifest ->
             val application = manifest.root.children("application").single()
             if (application.children("activity").none { it.attribute("android:name") == ACTIVITY }) {
