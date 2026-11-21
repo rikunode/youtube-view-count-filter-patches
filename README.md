@@ -41,6 +41,13 @@ cd youtube-view-count-filter-patches
 
 The artifact is `patches/build/libs/patches-0.1.0.mpp`. To verify the GitHub Release artifact, use `sha256sum -c SHA256SUMS`.
 
+## Add to Morphe Manager
+
+In Morphe Manager, open **Patch sources → Add source** and enter the **GitHub repository URL**, not a direct `.mpp` download URL:
+
+`https://github.com/rikunode/youtube-view-count-filter-patches`
+
+Alternatively, open the [one-tap add-source link](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) on your Android device. The Manager reads `patches-list.json` and `patches-bundle.json` from the repository root, and downloads the existing **v0.1.0** bundle. Keep the official Morphe source enabled and select both patches in the same patching session.
 ## Patching
 
 Use Morphe Desktop 2.2.0 or compatible Manager and **both bundles in the same patching operation**. Example on a clean compatible single APK:

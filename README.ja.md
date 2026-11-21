@@ -43,6 +43,13 @@ cd youtube-view-count-filter-patches
 
 パッチ適用時には**公式Morphe v2.3.0と本パッチを同じ処理で選択**してください。元APKMirrorの配布物は分割APKです。base.apk単体には密度別drawableがないため、公式フィルタのパッチ適用には使えません。Windowsでの検証ではAntiSplit-G2でbaseとリソース系30スプリットを結合しました。本リポジトリではYouTubeのAPKを配布しません。
 
+## Morphe Managerへのパッチソース追加
+
+Morphe Managerの **パッチソース → ソースを追加** から、`.mpp` の直リンクではなく、次の **GitHubリポジトリURL** を登録してください。
+
+`https://github.com/rikunode/youtube-view-count-filter-patches`
+
+Android端末では [ワンタップ追加リンク](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) も使用できます。Managerはリポジトリ直下の `patches-list.json` と `patches-bundle.json` を取得し、既存の **v0.1.0** をダウンロードします。公式Morpheソースを残したまま、パッチ適用時には公式と本パッチの両方を選択してください。
 ## 検証と注意
 
 - Gradleビルド、公式フィルタとの同時適用、DEXの両フック共存、設定Activity/Providerのマニフェスト登録は確認済み
