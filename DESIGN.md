@@ -1,48 +1,62 @@
-# YouTube view-count filter: self-owned hook design (2026-11-21)
+# Rikunode View Count Filter — architecture and verification
 
-**Target:** clean YouTube 21.30.216 APK, official Morphe Patches v2.3.0 plus one independent third-party `.mpp`, patched in the same CLI run. **Architecture decision:** independent APK hooks only, via public `app.morphe.patcher.*` API and self-owned extension; no `app.morphe.patches.*` imports or copied Morphe extension classes. This supersedes the original cross-bundle Litho/settings registration proposal.
+Updated 2026-11-21. Target: **YouTube 21.30.216** (versionCode 1561187872), **official Morphe Patches v2.3.0** and an independently built `.mpp` patch in **one** patcher invocation. This target is the official STABLE version; 21.46.522 was excluded from official compatibility.
 
-## 1. Where Morphe hooks, and independent hook boundary
+## 1. Independent APK-side filtering hook
 
-Source examined: [official shared LithoFilterPatch.kt](https://github.com/MorpheApp/morphe-patches/blob/main/patches/src/main/kotlin/app/morphe/patches/shared/misc/litho/filter/LithoFilterPatch.kt#L171-L280) and [Fingerprints.kt](https://github.com/MorpheApp/morphe-patches/blob/main/patches/src/main/kotlin/app/morphe/patches/shared/misc/litho/filter/Fingerprints.kt#L26-L79). The official patch finds an APK-side component-creation method via a characteristic `IF_EQZ` / `CHECK_CAST` / `RETURN_OBJECT` sequence and diagnostic literals `Element missing correct type extension` and `Element missing type`. At the matched return, it calls its own extension with `p2` (context), encoded protobuf bytes from `p3`, accessibility ID/text; if filtered, it calls an APK-side empty-component builder and returns that component. Separately, it modifies the **Morphe extension constructor** to populate a filter array. **Do not touch that constructor or the official helper.**
+Implementation: `patches/src/main/kotlin/app/rikunode/morphe/patches/youtube/ViewCountM1ProbePatch.kt`.
 
-**Independent candidate:** find the same APK-side component-construction method by original literals/structural fingerprint, but inspect the **original successful return** rather than reuse the official inserted `isFiltered` call or its helper. At the final successful `return-object` boundary, insert a call to our own extension `app.rikunode.morphe.extension.youtube.filters.ViewCountFilter` with the relevant per-item metadata/context (captured only from verified method registers). If decision is true, replace the successful result with the APK's existing empty-component result; otherwise preserve it. This requires verifying the exact register lifetime, original return branches, empty-component builder, and whether official patch insertion changes the match location on **21.30.216**, before writing the hook. This is an independent APK method interception, not an upstream filter registration. Both hooks must leave the original parser's mandatory cleanup/control flow intact; if no distinct safe success boundary exists, fail M1 rather than override the official hook. Reuse only factual fingerprint characteristics, never source or classes from the official patch.
+Only public `app.morphe.patcher.*` APIs are imported. The patch neither imports `app.morphe.patches.*` nor copies Morphe extension code. We use original APK-side class/method characteristics, which can be independently fingerprinted:
 
-**Metadata contract:** do not parse arbitrary protobuf bytes as if UTF-8 text. Identify and decode the actual view-count display text from feed component metadata (or a verified accessibility text field) while preserving screen context; reject ambiguity. The M1 probe must demonstrate one fixed test rule that **actually removes one observed feed item**, not only a patched class or logged call. Returning a blank component is insufficient if it leaves a visible empty card; verify feed-list removal. If the upstream list-removal mechanism cannot be shared, independently identify a safe list-element exclusion point without copying its implementation. If neither can be proven, M1 FAIL.
+- Component converter fingerprint: original strings `Element missing correct type extension` and `Element missing type`. In **21.30.216** it resolves to `Lvvz;->a(Liev;Lxcv;Lwls;Ljava/util/List;Lxds;Z)Lieq;`.
+- Official patch v2.3.0 modifies this APK method to run `LithoFilterPatch.isFiltered(context, protobuf, accessibility ID, accessibility text)` after conversion. Source evidence: [Morphe shared Litho hook](https://github.com/MorpheApp/morphe-patches/blob/v2.3.0/patches/src/main/kotlin/app/morphe/patches/shared/misc/litho/filter/LithoFilterPatch.kt).
+- The independent hook targets the **final original return-object** after conversion/cleanup and after the official hook. It calls `ViewCountFilter.shouldDrop(Object)`; when true, it replaces the pending return value with the APK-side empty component via an independently fingerprinted `EmptyComponent` builder, otherwise returns the original object. The app-side method and builder references are obtained at patch time from fingerprints, with free-register allocation through the public patcher library.
+- Decompiled final `vvz.a` shows both: `LithoFilterPatch.isFiltered(...) || ViewCountFilter.shouldDrop(wlsVar)`. This is **structural coexistence evidence**, not proof that all actual feeds contain parseable counts or that list layouts never show a blank slot.
 
-## 2. Independent runtime settings
+## 2. Settings independent of the official registry
 
-No Morphe settings API imports. Own Java Android Activity under `app.rikunode.morphe.extension.youtube.settings`, own manifest registration and resources (via public patcher resource integration). Add an entry to the YouTube **APK-side** settings UI by fingerprinting the app's settings preference screen/menu creation path, inserting a uniquely keyed preference `rikunode_viewcount_settings` which opens the own activity. Do not alter Morphe's settings classes. Prefer a distinct preference insertion after the original app-built list is assembled, not at Morphe's `PreferenceScreen` registry. Verify 21.30.216 class/method and resource ID before implementation. An unverified menu entry must not be reported as working.
+A second APK-side fingerprint finds a synthetic `run()` method containing `:android:show_fragment_args` and the native `PreferenceScreen` accessor. On this exact APK it resolves to `Lptw;->run()V`. Before the settings builder returns, the independent extension `ViewCountSettingsEntry.install(Object)` inserts a uniquely keyed native `Preference` via reflection and opens `ViewCountSettingsActivity`. It does **not** use Morphe's private settings API or call its extension hooks.
 
-Persist using Android `SharedPreferences` with namespace `rikunode_viewcount_*`. Controls: home/search/subscriptions ON/OFF (all false), `less_than=1000L`, `greater_than=1000000000000L`. Each control editable at runtime, survives app restart. Default filtering OFF, unknown feed context or unparseable count leaves item visible. The probe must demonstrate settings entry displayed **and** saved value read back, not merely static resource addition.
+The patch registers its own settings Activity and `ViewCountInitProvider` in the patched app manifest via the public `resourceXml` API. The provider initializes the application Context before feed rendering. Runtime settings persist in private `SharedPreferences` (`rikunode_viewcount` file), with unique keys:
 
-## 3. Locale and filter semantics
+| Key | Default |
+|---|---:|
+| `rikunode_viewcount_home` | false |
+| `rikunode_viewcount_search` | false |
+| `rikunode_viewcount_subscriptions` | false |
+| `rikunode_viewcount_less_than` | 1000 |
+| `rikunode_viewcount_greater_than` | 1000000000000 |
+| `rikunode_viewcount_m1_test` | false |
 
-Recognize localized count strings only at the verified per-video view-count field. Normalize Unicode fullwidth digits and punctuation, decimal point, ordinary/NBSP spacing, thousands separators; suffixes `回視聴` / `回再生`, `view` / `views`; multipliers 万=10000, 億=100000000, K=1000, M=1000000, B=1000000000. Fixtures: `1.2万回視聴` = 12000; `3億回視聴` = 300000000; `1,234 回視聴` = 1234; `1.2K views` = 1200; `2.5M views` = 2500000; `1B views` = 1000000000. Use strict less/greater boundaries, safe long arithmetic, fail-open. These examples are design test cases, **not proof** of actual 21.30.216 serialized metadata.
+M1 test mode attempts to hide components containing `video` in the APK-side metadata identifier. It is explicitly opt-in and can hide broadly. Owner device testing of the actual settings entry, persistence after restart, and visible feed removal remains mandatory.
 
-## 4. Independent package and build
+## 3. Localized parsing and fail-open behavior
 
-Continue official [patches template](https://github.com/MorpheApp/morphe-patches-template) layout, Gradle plugin submodule `v2.1.1` (commit `444bb41a`), patcher submodule `v2.4.0` (commit `0aed87c4`), local `includeBuild` in `settings.gradle.kts`. No credentials committed. Proposed:
-- `patches/src/main/kotlin/app/rikunode/morphe/patches/youtube/ViewCountPatch.kt`: app-only fingerprints, injection and class/resource integration
-- `extensions/extension/src/main/java/app/rikunode/morphe/extension/youtube/filters/ViewCountFilter.java`
-- `extensions/extension/src/main/java/app/rikunode/morphe/extension/youtube/settings/ViewCountSettingsActivity.java`
-- `extensions/extension/src/main/AndroidManifest.xml`, `extensions/extension/src/main/res/values/strings.xml`
+`ViewCountParser.java` is an independent, self-owned Java implementation informed by the multiplier/threshold approach of [Anddea's FeedVideoViewsFilter](https://github.com/anddea/revanced-patches/blob/main/extensions/shared/src/main/java/app/morphe/extension/youtube/patches/components/FeedVideoViewsFilter.java). It uses neither Anddea's private extension classes nor Morphe's private registry.
 
-## 5. M1 **hard gate** / proof obligations
+The parser normalizes Unicode fullwidth numbers, spaces and NBSP, and recognizes Japanese `万`, `億`, `回視聴`, `回再生` and English K/M/B and `views`. It scans only patterns with explicit view-count suffixes, rejecting ambiguous matches, overflow and missing counts. Thresholds are strict lower-than/greater-than. Buffer access and obfuscated component method reflection are guarded: any failure returns false (leave visible).
 
-1. Build a tiny `.mpp` using public patcher API only. Any unresolved app registers, fingerprint ambiguity or inability to add own extension => FAIL.
-2. Use MUSE-supplied, SHA-256-verified APKMirror 21.30.216 base.apk (bundle SHA-256 verified by MUSE); retain original SHA256, check signature/package/version and scan for malware **before use**. Obtain official `patches-2.3.0.mpp` and official patcher CLI from MorpheApp releases. Use exactly one CLI patch run with both bundles, selecting official Hide layout components (includes the KeywordContentFilter) and custom probe.
-3. Verify CLI report marks both official patches and custom patch as applied, extension present without duplicate class descriptors, safe independent hook in patched DEX (specific opcode and method evidence), **structural evidence of a filter branch** by the fixed M1 rule, and the custom settings entry and persistence code in patched DEX/resources. Actual visible feed removal and live settings persistence are owner-device acceptance checks, not assertions from static APK inspection.
-4. If any requirement fails, **stop** and report exact evidence. Do not silently weaken the test or invent a new hook.
+**Known limitation:** The current screen classifier recognizes only metadata identifiers containing `home`/`feed`, `search`, or `subscription`. The raw protobuf may contain multiple view-count-like strings; differing numbers fail open. Some actual feeds may not carry a recognizable screen identifier or count in the exposed bytes, in which case the patch deliberately does nothing. Actual feed data must be validated on a device before calling the filter reliable.
 
-**M2 only after fully successful M1:** port Anddea view-count comparison (preserve source copyright headers), add localized parser and six focused fixtures, GPLv3 LICENSE and NOTICE retaining Morphe GPLv3 Section 7 notices, bilingual README with explicit unofficial third-party status, tagged `v0.1.0` GitHub Actions Release with `.mpp` and `SHA256SUMS`. Do not check in APKs, credentials, machine paths or personal data.
+Parser fixtures passed: `1.2万回視聴`=12000, `3億回視聴`=300000000, `1,234 回視聴`=1234, `1.2K views`=1200, `2.5M views`=2500000, `1B views`=1000000000, `１２．５万回再生`=125000, no-count fail-open, conflicting-count fail-open.
 
-## 6. Owner device verification (after M2)
+## 4. Build and packaging
 
-Check settings shown/persisted; independent HOME/SEARCH/SUBSCRIPTIONS toggles; Japanese `1.2万回視聴` both sides of threshold; GREATER_THAN behavior; English K/M/B; fail-open on unknown counts; original Morphe Hide feed components and Keyword filter still working.
+Gradle plugin [morphe-patches-gradle-plugin v2.1.1](https://github.com/MorpheApp/morphe-patches-gradle-plugin) at `444bb41a`, patcher [v2.4.0](https://github.com/MorpheApp/morphe-patcher) at `0aed87c4`, pinned as Git submodules and wired with `includeBuild`. JDK 23 + Android SDK 36. The official v2.3.0 patch bundle is **not** copied into the independent `.mpp`.
 
-## MUSE hold points
+For Windows integration, the MUSE-supplied base APK (SHA-256 `6422639d1cd679f99a6e26288940b243c0cde30253a085058bd09ab4aeedfe0c`) and 30 resource splits (ZIP SHA-256 `43016c5234748e89e9cd44bcbd5d7e42af7fb42b5dec47c8eebc212b17cc55d5`) were merged using **AntiSplit-G2** in an Android emulator. The result was 75,398,767 bytes; `aapt` found `yt_fill_bell_black_24` with zero ARSC consistency warnings. The bare base APK is unsuitable for the official Hide layout components patch because its density resources are absent.
 
-- The APK-side **safe success-return hook**, extracted view-count metadata, and app settings insertion site must be demonstrated from actual 21.30.216 code, not inferred only from upstream Kotlin.
-- Windows-side M1 verifies patch report and post-patch structural coexistence; the owner separately verifies actual feed removal and settings UI readback on a device.
-- A conflict with official injected code means FAIL (no replacement method or internal-library copy).
+## 5. M1 evidence and owner acceptance
+
+Windows static gate:
+- Official `Hide layout components` (including `KeywordContentFilter`) plus `View count filter (Rikunode)` both applied on YouTube 21.30.216 with **no patch failures**, and the APK rebuilt.
+- Decompiled `vvz.a` contains the independent optional empty-component branch and official `LithoFilterPatch.isFiltered`, with no class collision.
+- The patched manifest registers the self-owned settings Activity and init Provider.
+- Nine parser fixtures passed.
+- Morphe Desktop's local Bouncy Castle signer failed at keystore MAC verification; static verification used `--unsigned`. This is a signing-environment failure rather than a patch failure; it does **not** establish device installability.
+
+The owner must independently verify actual hiding, settings entry visibility and persistence, separate HOME/SEARCH/SUBSCRIPTIONS switches, Japanese/English and boundary cases, fail-open behavior, and official filter stability on a device. **Do not claim runtime verification from APK inspection alone.**
+
+## 6. License and release
+
+GPL-3.0-or-later, with `NOTICE` retaining Morphe GPLv3 Section 7 notices and Anddea attribution. Official patch internals are not redistributed. Source README in English/Japanese and GitHub Actions build a uniquely named `.mpp` with `SHA256SUMS` for an experimental `v0.1.0` Release. No YouTube APK, keys, tokens or personal data may be committed or attached.

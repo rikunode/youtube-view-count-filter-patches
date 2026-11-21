@@ -1,0 +1,17 @@
+.gradle/
+**/build/
+.idea/
+local.properties
+*.iml
+*.log
+*.apk
+*.apkm
+*.xapk
+*.apks
+*.jks
+*.keystore
+*.key
+.env
+.env.*
+# Gradle wrapper is source-controlled.
+!gradle/wrapper/gradle-wrapper.jar
