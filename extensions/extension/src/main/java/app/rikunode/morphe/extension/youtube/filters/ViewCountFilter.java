@@ -18,6 +18,16 @@ public final class ViewCountFilter {
 
     public static void probe() { /* Legacy marker; not a filter. */ }
 
+    /** Called only for diagnostics; never changes the converter's result. */
+    public static void probeContext(Object xcv, Object component, Object children, Object xds) {
+        try {
+            Context app = application;
+            if (app == null || component == null) return;
+            Object path = component.getClass().getMethod("k").invoke(component);
+            ViewCountProbe.recordV2(app, path, xcv, children, xds);
+        } catch (Throwable ignored) { }
+    }
+
     /**
      * Fail-open hook for the APK-side Litho component converter.
      * All conversion and cleanup is performed by the host before this is called.
@@ -29,7 +39,6 @@ public final class ViewCountFilter {
             SharedPreferences prefs = app.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE);
             Method pathMethod = component.getClass().getMethod("k");
             Object rawPath = pathMethod.invoke(component);
-            try { ViewCountProbe.record(app, rawPath); } catch (Throwable ignored) { }
             String path = rawPath == null ? "" : rawPath.toString().toLowerCase(Locale.ROOT);
 
             String key;

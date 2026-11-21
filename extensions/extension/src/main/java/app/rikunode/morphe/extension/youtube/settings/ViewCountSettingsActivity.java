@@ -63,7 +63,7 @@ public final class ViewCountSettingsActivity extends Activity {
         column.addView(save);
 
         TextView probeHeading = new TextView(this);
-        probeHeading.setText("診断 / Probe");
+        probeHeading.setText("診断 / Probe v2");
         probeHeading.setTextSize(19);
         column.addView(probeHeading);
         TextView probeLog = new TextView(this);

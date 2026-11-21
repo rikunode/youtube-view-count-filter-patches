@@ -94,6 +94,9 @@ val viewCountFilterPatch = patch(
         converter.addInstructionsWithLabels(
             end,
             """
+                # Original converter arguments p2..p5 are xcV, wls, List, xds.
+                # Diagnostics are isolated from the filter decision.
+                invoke-static/range {p2 .. p5}, $FILTER->probeContext(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V
                 # Original app conversion and the official filter have already run.
                 move-object/from16 v$temp, p3
                 invoke-static { v$temp }, $FILTER->shouldDrop(Ljava/lang/Object;)Z
