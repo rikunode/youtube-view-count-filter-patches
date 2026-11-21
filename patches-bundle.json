@@ -1,7 +1,7 @@
 {
-    "created_at":  "2026-11-21T02:13:45",
-    "description":  "Experimental Rikunode View Count Filter v0.1.0 for YouTube 21.30.216. Requires official Morphe Patches v2.3.0 in the same patching session. On-device behavior remains unverified.",
-    "download_url":  "https://github.com/rikunode/youtube-view-count-filter-patches/releases/download/v0.1.0/rikunode-view-count-filter-0.1.0.mpp",
+    "created_at":  "2026-11-21T03:46:40",
+    "description":  "Experimental Rikunode View Count Filter v0.1.1 for YouTube 21.30.216. Requires official Morphe Patches v2.3.0 in the same patching session. On-device behavior remains unverified.",
+    "download_url":  "https://github.com/rikunode/youtube-view-count-filter-patches/releases/download/v0.1.1/patches-0.1.1.mpp",
     "signature_download_url":  "",
-    "version":  "0.1.0"
+    "version":  "0.1.1"
 }

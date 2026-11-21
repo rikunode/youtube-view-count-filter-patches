@@ -33,7 +33,7 @@ jobs:
       - name: Prepare assets and SHA256SUMS
         run: |
           mkdir -p dist
-          cp patches/build/libs/patches-0.1.0.mpp dist/rikunode-view-count-filter-0.1.0.mpp
+          cp patches/build/libs/patches-0.1.1.mpp dist/patches-0.1.1.mpp
           cd dist
           sha256sum *.mpp > SHA256SUMS
           sha256sum -c SHA256SUMS
@@ -46,7 +46,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/rikunode-view-count-filter-0.1.0.mpp
+            dist/patches-0.1.1.mpp
             dist/SHA256SUMS
           generate_release_notes: false
           draft: false

@@ -39,7 +39,7 @@ cd youtube-view-count-filter-patches
 ./gradlew build
 ```
 
-The artifact is `patches/build/libs/patches-0.1.0.mpp`. To verify the GitHub Release artifact, use `sha256sum -c SHA256SUMS`.
+The artifact is `patches/build/libs/patches-0.1.1.mpp`. To verify the GitHub Release artifact, use `sha256sum -c SHA256SUMS`.
 
 ## Add to Morphe Manager
 
@@ -47,7 +47,7 @@ In Morphe Manager, open **Patch sources → Add source** and enter the **GitHub 
 
 `https://github.com/rikunode/youtube-view-count-filter-patches`
 
-Alternatively, open the [one-tap add-source link](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) on your Android device. The Manager reads `patches-list.json` and `patches-bundle.json` from the repository root, and downloads the existing **v0.1.0** bundle. Keep the official Morphe source enabled and select both patches in the same patching session.
+Alternatively, open the [one-tap add-source link](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) on your Android device. The Manager reads `patches-list.json` and `patches-bundle.json` from the repository root, and downloads the **v0.1.1** bundle. Keep the official Morphe source enabled and select both patches in the same patching session.
 ## Patching
 
 Use Morphe Desktop 2.2.0 or compatible Manager and **both bundles in the same patching operation**. Example on a clean compatible single APK:
@@ -55,7 +55,7 @@ Use Morphe Desktop 2.2.0 or compatible Manager and **both bundles in the same pa
 ```sh
 java -jar morphe-desktop-2.2.0-all.jar patch \
   --patches=patches-2.3.0.mpp --enable="Hide layout components" \
-  --patches=rikunode-view-count-filter-0.1.0.mpp --enable="View count filter (Rikunode)" \
+  --patches=patches-0.1.1.mpp --enable="View count filter (Rikunode)" \
   --exclusive --out=youtube-patched.apk youtube-21.30.216.apk
 ```
 
@@ -69,7 +69,7 @@ The original APKMirror distribution is split. A bare `base.apk` does **not** inc
 - ✅ Self-owned Activity and init Provider registered in patched AndroidManifest
 - ✅ 9 focused parser fixtures (Japanese/English, fullwidth, fail-open) passed
 - ⚠️ Morphe Desktop's local Bouncy Castle keystore signer failed; **structural test APK was emitted unsigned**. Use a working signer/Manager for installation
-- ⏳ Owner must validate feed removal and settings display/persistence on a device. Until that happens, this release is **experimental**.
+- ⏳ Owner must validate feed removal and settings display/persistence on a device. Until that happens, this release remains **experimental**.
 
 ### Owner device checks
 
