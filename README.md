@@ -25,7 +25,7 @@ An independent APK-side hook adds a final optional rejection of a feed component
 | `rikunode_viewcount_less_than` | 1000 |
 | `rikunode_viewcount_greater_than` | 1,000,000,000,000 |
 
-The new **View count filter / 再生回数フィルタ** entry is injected into YouTube's native settings screen and opens this project's own settings Activity. The keys persist in the application's private SharedPreferences. The filter recognizes Japanese `万`, `億`, `回視聴` and `回再生`, and English `K/M/B` and `view(s)`, including normalized fullwidth digits. Unknown/ambiguous counts, unknown screen contexts, and exceptions fail open (no hiding). Threshold comparisons are strict (`<` and `>`).
+With official Morphe Patches applied in the same session, the **View count filter / 再生回数フィルタ** entry is merged into **Morphe > Settings** via the official add-on preference XML mechanism. Without official Morphe settings, a native YouTube settings entry is added using the obfuscated Preference API in YouTube 21.30.216. Either entry opens this project's own settings Activity. The keys persist in the application's private SharedPreferences. The filter recognizes Japanese `万`, `億`, `回視聴` and `回再生`, and English `K/M/B` and `view(s)`, including normalized fullwidth digits. Unknown/ambiguous counts, unknown screen contexts, and exceptions fail open (no hiding). Threshold comparisons are strict (`<` and `>`).
 
 **Important limitation:** Screen classification currently depends on component metadata identifiers containing `home`/`feed`, `search`, or `subscription`. Not every feed component provides these identifiers. The Windows integration proves structural injection, **not** successful hiding on every screen; on-device validation remains required. The optional **M1 test** toggle attempts to hide components with `video` in their metadata identifier; it is OFF by default and can broadly hide cards.
 
@@ -39,7 +39,7 @@ cd youtube-view-count-filter-patches
 ./gradlew build
 ```
 
-The artifact is `patches/build/libs/patches-0.1.3.mpp`. To verify the GitHub Release artifact, use `sha256sum -c SHA256SUMS`.
+The artifact is `patches/build/libs/patches-0.1.4.mpp`. To verify the GitHub Release artifact, use `sha256sum -c SHA256SUMS`.
 
 ## Add to Morphe Manager
 
@@ -47,7 +47,7 @@ In Morphe Manager, open **Patch sources → Add source** and enter the **GitHub 
 
 `https://github.com/rikunode/youtube-view-count-filter-patches`
 
-Alternatively, open the [one-tap add-source link](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) on your Android device. The Manager reads `patches-list.json` and `patches-bundle.json` from the repository root, and downloads the **v0.1.3** bundle. Keep the official Morphe source enabled and select both patches in the same patching session.
+Alternatively, open the [one-tap add-source link](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) on your Android device. The Manager reads `patches-list.json` and `patches-bundle.json` from the repository root, and downloads the **v0.1.4** bundle. Keep the official Morphe source enabled and select both patches in the same patching session.
 ## Patching
 
 Use Morphe Desktop 2.2.0 or compatible Manager and **both bundles in the same patching operation**. Example on a clean compatible single APK:
@@ -55,7 +55,7 @@ Use Morphe Desktop 2.2.0 or compatible Manager and **both bundles in the same pa
 ```sh
 java -jar morphe-desktop-2.2.0-all.jar patch \
   --patches=patches-2.3.0.mpp --enable="Hide layout components" \
-  --patches=patches-0.1.3.mpp --enable="View count filter (Rikunode)" \
+  --patches=patches-0.1.4.mpp --enable="View count filter (Rikunode)" \
   --exclusive --out=youtube-patched.apk youtube-21.30.216.apk
 ```
 

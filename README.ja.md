@@ -15,7 +15,7 @@ YouTubeのフィードを再生回数でフィルタする**非公式・独立�
 
 ## 設定と動作
 
-YouTube内の設定画面に **View count filter / 再生回数フィルタ** の入口を追加します。入口から自前の設定画面を開き、保存した値はアプリ内のSharedPreferencesに保持します。
+公式Morphe Patchesと同時適用した場合は、公式のアドオン設定XMLを使って **Morphe > Settings** 内に **View count filter / 再生回数フィルタ** の入口を追加します。公式Morphe設定がない場合は、YouTube 21.30.216の実際の難読化Preference APIを使ってYouTube本体の設定トップへ追加します。どちらの入口も自前の設定画面を開き、保存した値はアプリ内のSharedPreferencesに保持します。
 
 | 設定 | 初期値 |
 |---|---|
@@ -39,7 +39,7 @@ cd youtube-view-count-filter-patches
 ./gradlew build
 ```
 
-成果物は `patches/build/libs/patches-0.1.3.mpp` です。Release添付の `SHA256SUMS` を照合してください。
+成果物は `patches/build/libs/patches-0.1.4.mpp` です。Release添付の `SHA256SUMS` を照合してください。
 
 パッチ適用時には**公式Morphe v2.3.0と本パッチを同じ処理で選択**してください。元APKMirrorの配布物は分割APKです。base.apk単体には密度別drawableがないため、公式フィルタのパッチ適用には使えません。Windowsでの検証ではAntiSplit-G2でbaseとリソース系30スプリットを結合しました。本リポジトリではYouTubeのAPKを配布しません。
 
@@ -49,13 +49,13 @@ Morphe Managerの **パッチソース → ソースを追加** から、`.mpp` 
 
 `https://github.com/rikunode/youtube-view-count-filter-patches`
 
-Android端末では [ワンタップ追加リンク](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) も使用できます。Managerはリポジトリ直下の `patches-list.json` と `patches-bundle.json` を取得し、**v0.1.3** をダウンロードします。公式Morpheソースを残したまま、パッチ適用時には公式と本パッチの両方を選択してください。
+Android端末では [ワンタップ追加リンク](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) も使用できます。Managerはリポジトリ直下の `patches-list.json` と `patches-bundle.json` を取得し、**v0.1.4** をダウンロードします。公式Morpheソースを残したまま、パッチ適用時には公式と本パッチの両方を選択してください。
 ## 検証と注意
 
 - Gradleビルド、公式フィルタとの同時適用、DEXの両フック共存、設定Activity/Providerのマニフェスト登録は確認済み
 - 日本語・英語・全角・解析不能を含むパーサー9件のテスト合格
 - Windows上のMorphe Desktop 2.2.0は鍵ストア署名で失敗したため、**構造検証用APKは未署名**
-- **実機で動画が消えること、設定UIが表示・保存されることは未検収。v0.1.3は実験版です**
+- **実機で動画が消えること、設定UIが表示・保存されることは未検収。v0.1.4は実験版です**
 
 所有者の実機検収では、設定入口・保存・再起動後の維持、ホーム/検索/登録チャンネルの独立ON/OFF、万/億・K/M/B、上下限、fail-open、公式Hide layout componentsとKeywordContentFilterへの無影響を確認してください。
 

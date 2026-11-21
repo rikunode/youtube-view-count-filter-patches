@@ -10,6 +10,7 @@ import app.morphe.patcher.patch.AppTarget
 import app.morphe.patcher.patch.Compatibility
 import app.morphe.patcher.patch.classDefBy
 import app.morphe.patcher.patch.patch
+import app.morphe.patcher.patch.resourceFile
 import app.morphe.patcher.patch.resourceXml
 import app.morphe.patcher.util.getFreeRegisterProvider
 import app.morphe.patcher.util.p0Register
@@ -134,6 +135,23 @@ val viewCountFilterPatch = patch(
             """.trimIndent(),
         )
         println("Rikunode settings hook: ${run.definingClass}->${run.name} gated by Lpty")
+
+        // Official Morphe's settings patch merges this declaration into its own
+        // settings screen when both bundles are applied in one session.
+        // The native settings hook remains the standalone fallback.
+        resourceFile("morphe_addon_prefs.xml").writeText(
+            """<morphe-add-on-preferences xmlns:android="http://schemas.android.com/apk/res/android">
+                <screen>
+                    <Preference android:key="rikunode_viewcount_settings"
+                        android:title="View count filter / 再生回数フィルタ"
+                        android:summary="独立した再生回数フィルタの設定">
+                        <intent android:action="android.intent.action.VIEW"
+                            android:targetPackage="com.google.android.youtube"
+                            android:targetClass="$ACTIVITY" />
+                    </Preference>
+                </screen>
+            </morphe-add-on-preferences>""".trimIndent()
+        )
 
         resourceXml("AndroidManifest.xml").use { manifest ->
             val application = manifest.root.children("application").single()
