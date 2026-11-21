@@ -29,11 +29,23 @@ jobs:
       - name: Build patch bundle
         run: |
           chmod +x ./gradlew
-          ./gradlew build --no-daemon --console plain
+          ./gradlew build :patches:buildAndroid :patches:generatePatchesList --no-daemon --console plain
+      - name: Verify Android DEX in distributable MPP
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          path = 'patches/build/libs/patches-0.1.2.mpp'
+          with zipfile.ZipFile(path) as bundle:
+              dex = bundle.getinfo('classes.dex')
+              assert dex.file_size > 0, 'classes.dex is empty'
+              contents = bundle.read('classes.dex')
+              assert b'Lapp/rikunode/morphe/patches/youtube/' in contents, 'YouTube patch class absent from DEX'
+              print(f'Android MPP verified: classes.dex={dex.file_size} bytes; own patch namespace found')
+          PY
       - name: Prepare assets and SHA256SUMS
         run: |
           mkdir -p dist
-          cp patches/build/libs/patches-0.1.1.mpp dist/patches-0.1.1.mpp
+          cp patches/build/libs/patches-0.1.2.mpp dist/patches-0.1.2.mpp
           cd dist
           sha256sum *.mpp > SHA256SUMS
           sha256sum -c SHA256SUMS
@@ -46,7 +58,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/patches-0.1.1.mpp
+            dist/patches-0.1.2.mpp
             dist/SHA256SUMS
           generate_release_notes: false
           draft: false

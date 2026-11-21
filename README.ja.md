@@ -39,7 +39,7 @@ cd youtube-view-count-filter-patches
 ./gradlew build
 ```
 
-成果物は `patches/build/libs/patches-0.1.1.mpp` です。Release添付の `SHA256SUMS` を照合してください。
+成果物は `patches/build/libs/patches-0.1.2.mpp` です。Release添付の `SHA256SUMS` を照合してください。
 
 パッチ適用時には**公式Morphe v2.3.0と本パッチを同じ処理で選択**してください。元APKMirrorの配布物は分割APKです。base.apk単体には密度別drawableがないため、公式フィルタのパッチ適用には使えません。Windowsでの検証ではAntiSplit-G2でbaseとリソース系30スプリットを結合しました。本リポジトリではYouTubeのAPKを配布しません。
 
@@ -49,13 +49,13 @@ Morphe Managerの **パッチソース → ソースを追加** から、`.mpp` 
 
 `https://github.com/rikunode/youtube-view-count-filter-patches`
 
-Android端末では [ワンタップ追加リンク](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) も使用できます。Managerはリポジトリ直下の `patches-list.json` と `patches-bundle.json` を取得し、**v0.1.1** をダウンロードします。公式Morpheソースを残したまま、パッチ適用時には公式と本パッチの両方を選択してください。
+Android端末では [ワンタップ追加リンク](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) も使用できます。Managerはリポジトリ直下の `patches-list.json` と `patches-bundle.json` を取得し、**v0.1.2** をダウンロードします。公式Morpheソースを残したまま、パッチ適用時には公式と本パッチの両方を選択してください。
 ## 検証と注意
 
 - Gradleビルド、公式フィルタとの同時適用、DEXの両フック共存、設定Activity/Providerのマニフェスト登録は確認済み
 - 日本語・英語・全角・解析不能を含むパーサー9件のテスト合格
 - Windows上のMorphe Desktop 2.2.0は鍵ストア署名で失敗したため、**構造検証用APKは未署名**
-- **実機で動画が消えること、設定UIが表示・保存されることは未検収。v0.1.1は実験版です**
+- **実機で動画が消えること、設定UIが表示・保存されることは未検収。v0.1.2は実験版です**
 
 所有者の実機検収では、設定入口・保存・再起動後の維持、ホーム/検索/登録チャンネルの独立ON/OFF、万/億・K/M/B、上下限、fail-open、公式Hide layout componentsとKeywordContentFilterへの無影響を確認してください。
 

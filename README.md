@@ -39,7 +39,7 @@ cd youtube-view-count-filter-patches
 ./gradlew build
 ```
 
-The artifact is `patches/build/libs/patches-0.1.1.mpp`. To verify the GitHub Release artifact, use `sha256sum -c SHA256SUMS`.
+The artifact is `patches/build/libs/patches-0.1.2.mpp`. To verify the GitHub Release artifact, use `sha256sum -c SHA256SUMS`.
 
 ## Add to Morphe Manager
 
@@ -47,7 +47,7 @@ In Morphe Manager, open **Patch sources → Add source** and enter the **GitHub 
 
 `https://github.com/rikunode/youtube-view-count-filter-patches`
 
-Alternatively, open the [one-tap add-source link](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) on your Android device. The Manager reads `patches-list.json` and `patches-bundle.json` from the repository root, and downloads the **v0.1.1** bundle. Keep the official Morphe source enabled and select both patches in the same patching session.
+Alternatively, open the [one-tap add-source link](https://morphe.software/add-source?github=rikunode/youtube-view-count-filter-patches) on your Android device. The Manager reads `patches-list.json` and `patches-bundle.json` from the repository root, and downloads the **v0.1.2** bundle. Keep the official Morphe source enabled and select both patches in the same patching session.
 ## Patching
 
 Use Morphe Desktop 2.2.0 or compatible Manager and **both bundles in the same patching operation**. Example on a clean compatible single APK:
@@ -55,7 +55,7 @@ Use Morphe Desktop 2.2.0 or compatible Manager and **both bundles in the same pa
 ```sh
 java -jar morphe-desktop-2.2.0-all.jar patch \
   --patches=patches-2.3.0.mpp --enable="Hide layout components" \
-  --patches=patches-0.1.1.mpp --enable="View count filter (Rikunode)" \
+  --patches=patches-0.1.2.mpp --enable="View count filter (Rikunode)" \
   --exclusive --out=youtube-patched.apk youtube-21.30.216.apk
 ```
 
