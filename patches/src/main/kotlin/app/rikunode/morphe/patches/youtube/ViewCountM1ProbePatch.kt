@@ -153,17 +153,29 @@ val viewCountFilterPatch = patch(
             </morphe-add-on-preferences>""".trimIndent()
         )
 
+    }
+
+    // Re-assert component declarations after all patch execute phases. Earlier
+    // manifest edits are not sufficient evidence that the final APK retains them.
+    finalize {
         resourceXml("AndroidManifest.xml").use { manifest ->
             val application = manifest.root.children("application").single()
-            application.appendChild("activity") {
-                setAttribute("android:name", ACTIVITY)
-                setAttribute("android:exported", "false")
+            if (application.children("activity").none { it.attribute("android:name") == ACTIVITY }) {
+                application.appendChild("activity") {
+                    setAttribute("android:name", ACTIVITY)
+                    setAttribute("android:exported", "false")
+                }
             }
-            application.appendChild("provider") {
-                setAttribute("android:name", PROVIDER)
-                setAttribute("android:authorities", "com.google.android.youtube.rikunode.viewcount.init")
-                setAttribute("android:exported", "false")
-                setAttribute("android:initOrder", "100")
+            if (application.children("provider").none { it.attribute("android:name") == PROVIDER }) {
+                application.appendChild("provider") {
+                    setAttribute("android:name", PROVIDER)
+                    setAttribute("android:authorities", "com.google.android.youtube.rikunode.viewcount.init")
+                    setAttribute("android:exported", "false")
+                    setAttribute("android:initOrder", "100")
+                }
+            }
+            require(application.children("activity").any { it.attribute("android:name") == ACTIVITY }) {
+                "Missing ViewCountSettingsActivity declaration in final manifest"
             }
         }
     }
