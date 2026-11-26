@@ -23,11 +23,51 @@ private const val EXTRA = 24
 
 // Raw APK offsets are provenance/log labels only.
 private data class Anchor(val opcode: Opcode, val reference: String?, val operands: List<Int>) {
-    fun matches(i: Instruction) = i.opcode == opcode &&
-        (reference == null || (i as? ReferenceInstruction)?.reference.toString() == reference) &&
-        i.registersUsed == operands
+    // Numbers in the specification are symbolic roles, not live register indices.
+    fun bind(i: Instruction, roles: MutableMap<Int, Int>): Boolean {
+        if (i.opcode != opcode ||
+            (reference != null && (i as? ReferenceInstruction)?.reference.toString() != reference)) return false
+        val actual = i.registersUsed
+        if (actual.size != operands.size) return false
+        return operands.zip(actual).all { (role, live) -> bindRole(roles, role, live) }
+    }
 }
 private fun a(op: Opcode, ref: String?, vararg regs: Int) = Anchor(op, ref, regs.toList())
+
+private fun bindRole(roles: MutableMap<Int, Int>, role: Int, live: Int): Boolean {
+    val existing = roles[role]
+    if (existing != null) return existing == live
+    if (live in roles.values) return false
+    roles[role] = live
+    return true
+}
+
+private fun parameterTypes(m: MutableMethod) =
+    listOf(m.definingClass) + m.parameterTypes.map { it.toString() }
+
+// Recognize a complete cloneParameters prologue, not arbitrary instructions.
+// The current incoming bank can be higher than the working bank used by the body.
+private fun workingParameters(instructions: List<Instruction>, count: Int, types: List<String>, rawCount: Int): Pair<Int, List<Int>> {
+    require(types.none { it == "J" || it == "D" })
+    val incoming = (count - types.size until count).toList()
+    require(incoming.first() >= 0)
+    // An ordinary first move (especially in a one-parameter method) is not cloning.
+    if (count < rawCount + types.size) return 0 to incoming
+    val copies = instructions.take(types.size)
+    if (copies.size != types.size) return 0 to incoming
+    val destinations = mutableListOf<Int>()
+    for ((index, i) in copies.withIndex()) {
+        val objectType = types[index].startsWith("L") || types[index].startsWith("[")
+        val allowed = if (objectType) setOf(Opcode.MOVE_OBJECT, Opcode.MOVE_OBJECT_FROM16, Opcode.MOVE_OBJECT_16)
+                      else setOf(Opcode.MOVE, Opcode.MOVE_FROM16, Opcode.MOVE_16)
+        val regs = i.registersUsed
+        if (i.opcode !in allowed || regs.size != 2 || regs[1] != incoming[index] ||
+            regs[0] >= incoming.first() || regs[0] in destinations) return 0 to incoming
+        destinations += regs[0]
+    }
+    if (destinations != (destinations.first() until destinations.first() + types.size).toList()) return 0 to incoming
+    return copies.size to destinations
+}
 
 // Negative registers refer to explicitly saved method-local values, not an app-global context.
 private data class Site(
@@ -103,13 +143,13 @@ private val targets = listOf(
     )),
     Target("classes.dex", "Lvpo;->d(Liev;Lxcv;Lwls;Lxds;Ljava/util/List;ILyay;Z)Lieq;", 37, listOf(
         s(0x0000, Opcode.MOVE_OBJECT_FROM16, null, listOf(1,28), "element_enter",29,30,31, saves=mapOf(-1 to 29,-2 to 30,-3 to 31), following=a(Opcode.MOVE_OBJECT_FROM16, null, 2,29), following2=a(Opcode.MOVE_OBJECT_FROM16, null, 5,30)),
-        s(0x007c, Opcode.INVOKE_DIRECT, "Lvpo;->e(Lwpx;)I", listOf(1,3), null, following=a(Opcode.MOVE_RESULT, null, 6)),
-        s(0x007f, Opcode.MOVE_RESULT, null, listOf(6), "element_type",-2,-3, after=true, num=6, before=a(Opcode.INVOKE_DIRECT, "Lvpo;->e(Lwpx;)I", 1,3)),
-        s(0x00c4, Opcode.INVOKE_INTERFACE_RANGE, "Lwls;->k()Ljava/lang/String;", listOf(31), null, following=a(Opcode.MOVE_RESULT_OBJECT, null, 13)),
-        s(0x00c7, Opcode.MOVE_RESULT_OBJECT, null, listOf(13), "element_key",-2,-3,13, after=true, before=a(Opcode.INVOKE_INTERFACE_RANGE, "Lwls;->k()Ljava/lang/String;", 31)),
+        s(0x007c, Opcode.INVOKE_DIRECT, "Lvpo;->e(Lwpx;)I", listOf(1,3), null, following=a(Opcode.MOVE_RESULT, null, 6), following2=a(Opcode.GOTO, null)),
+        s(0x007f, Opcode.MOVE_RESULT, null, listOf(6), "element_type",-2,-3, after=true, num=6, before=a(Opcode.INVOKE_DIRECT, "Lvpo;->e(Lwpx;)I", 1,3), following=a(Opcode.GOTO, null)),
+        s(0x00c4, Opcode.INVOKE_INTERFACE_RANGE, "Lwls;->k()Ljava/lang/String;", listOf(31), null, following=a(Opcode.MOVE_RESULT_OBJECT, null, 13), following2=a(Opcode.INVOKE_STATIC, "Lavqw;->an(Ljava/lang/String;)Z", 13)),
+        s(0x00c7, Opcode.MOVE_RESULT_OBJECT, null, listOf(13), "element_key",-2,-3,13, after=true, before=a(Opcode.INVOKE_INTERFACE_RANGE, "Lwls;->k()Ljava/lang/String;", 31), following=a(Opcode.INVOKE_STATIC, "Lavqw;->an(Ljava/lang/String;)Z", 13)),
         s(0x0162, Opcode.IPUT_OBJECT, "Lxcu;->g:Ljava/lang/String;", listOf(6,11), "element_path",-2,-3,6),
-        s(0x04dc, Opcode.INVOKE_DIRECT_RANGE, "Lvpo;->f(Liev;Lxcv;Lwls;Lxds;Ljava/util/List;Z)Ljava/util/List;", (1..7).toList(), "edge_d_1",-2,-3,2,3,4, following=a(Opcode.MOVE_RESULT_OBJECT, null, 3)),
-        s(0x0562, Opcode.INVOKE_DIRECT_RANGE, "Lvpo;->f(Liev;Lxcv;Lwls;Lxds;Ljava/util/List;Z)Ljava/util/List;", (1..7).toList(), "edge_d_2",-2,-3,2,3,4, following=a(Opcode.MOVE_RESULT_OBJECT, null, 7))
+        s(0x04dc, Opcode.INVOKE_DIRECT_RANGE, "Lvpo;->f(Liev;Lxcv;Lwls;Lxds;Ljava/util/List;Z)Ljava/util/List;", (1..7).toList(), "edge_d_1",-2,-3,2,3,4, before=a(Opcode.MOVE_OBJECT_FROM16, null, 4,31), following=a(Opcode.MOVE_RESULT_OBJECT, null, 3)),
+        s(0x0562, Opcode.INVOKE_DIRECT_RANGE, "Lvpo;->f(Liev;Lxcv;Lwls;Lxds;Ljava/util/List;Z)Ljava/util/List;", (1..7).toList(), "edge_d_2",-2,-3,2,3,4, before=a(Opcode.MOVE_OBJECT, null, 3,8), following=a(Opcode.MOVE_RESULT_OBJECT, null, 7))
     ), returns=true),
     Target("classes.dex", "Lvpo;->f(Liev;Lxcv;Lwls;Lxds;Ljava/util/List;Z)Ljava/util/List;", 22, listOf(
         s(0x0000, Opcode.MOVE_OBJECT_FROM16, null, listOf(2,17), "edge_f_enter",16,17,18, following=a(Opcode.INVOKE_INTERFACE_RANGE, "Lwls;->g()I", 18)),
@@ -124,7 +164,7 @@ private val targets = listOf(
     Target("classes2.dex", "Latjd;->E(Latix;I)V", 6, listOf(
         s(0x0005, Opcode.MOVE_RESULT_OBJECT, null, listOf(0), "row_view",0, after=true, saves=mapOf(-1 to 0), before=a(Opcode.INVOKE_INTERFACE, "Latis;->lN()Landroid/view/View;", 4)),
         s(0x0041, Opcode.MOVE_RESULT_OBJECT, null, listOf(5), "row_prepare",-1,5,4,1, after=true, before=a(Opcode.INVOKE_VIRTUAL, "Latjd;->getItem(I)Ljava/lang/Object;", 3,5)),
-        s(0x0054, Opcode.IGET_OBJECT, "Latjd;->a:Ljava/util/HashSet;", listOf(3,3), "row_bind",-1,5,4,1)
+        s(0x0054, Opcode.IGET_OBJECT, "Latjd;->a:Ljava/util/HashSet;", listOf(3,3), "row_bind",-1,5,4,1, before=a(Opcode.INVOKE_INTERFACE, "Latis;->pd(Latiq;Ljava/lang/Object;)V", 4,1,5))
     )),
     Target("classes2.dex", "Lastr;->k(Lastj;Liev;Lxcv;Latiq;Lbsot;)Lieq;", 13, listOf(
         s(0x0000, Opcode.IGET_OBJECT, "Lampz;->a:Lampe;", listOf(0,11), null, saves=mapOf(-1 to 11)),
@@ -132,43 +172,58 @@ private val targets = listOf(
     ))
 )
 
-private fun resolveSites(t: Target, instructions: List<Instruction>): Map<Int, Int> {
+private data class Resolution(val indices: Map<Int, Int>, val roles: Map<Int, Int>, val entry: Int)
+
+private fun resolveSites(t: Target, instructions: List<Instruction>, count: Int, types: List<String>): Resolution {
+    val (entry, params) = workingParameters(instructions, count, types, t.registers)
+    var roles = (t.registers - types.size until t.registers).zip(params).toMap()
     val resolved = linkedMapOf<Int, Int>()
     for (site in t.sites) {
         val anchor = Anchor(site.opcode, site.reference, requireNotNull(site.operands))
-        val matches = instructions.indices.filter { index ->
-            anchor.matches(instructions[index]) &&
-                (site.before == null || instructions.getOrNull(index - 1)?.let(site.before::matches) == true) &&
-                (site.following == null || instructions.getOrNull(index + 1)?.let(site.following::matches) == true) &&
-                (site.following2 == null || instructions.getOrNull(index + 2)?.let(site.following2::matches) == true)
+        val candidates = if (site.offset == 0) listOf(entry) else instructions.indices.toList()
+        val matches = candidates.mapNotNull { index ->
+            val bound = roles.toMutableMap()
+            fun match(relative: Int, pattern: Anchor?) = pattern == null ||
+                instructions.getOrNull(index + relative)?.let { pattern.bind(it, bound) } == true
+            if (match(0, anchor) && match(-1, site.before) && match(1, site.following) && match(2, site.following2))
+                index to bound else null
         }
         require(matches.size == 1) {
-            "Probe anchor not unique ${t.descriptor}:${site.offset.toString(16)} ${site.opcode} ${site.reference} ${site.operands}: ${matches.size} matches"
+            "Probe anchor not unique ${t.descriptor}:${site.offset.toString(16)} ${site.opcode} ${site.reference}: ${matches.size} matches"
         }
-        val index = matches.single()
-        require(site.offset != 0 || index == 0) { "Probe entry changed: ${t.descriptor}" }
+        val (index, bound) = matches.single()
         require(index > (resolved.values.lastOrNull() ?: -1)) { "Probe anchor order changed: ${t.descriptor}" }
+        roles = bound
         resolved[site.offset] = index
     }
-    return resolved
+    // Never silently fall back to a raw APK register number for an unbound operand.
+    for (site in t.sites) {
+        val required = site.args + site.saves.values + listOfNotNull(site.number)
+        require(required.filter { it >= 0 }.all { roles[it]?.let { live -> live in 0 until count } == true }) {
+            "Unbound probe operand: ${t.descriptor}:${site.offset.toString(16)}"
+        }
+    }
+    return Resolution(resolved, roles, entry)
 }
 
 private fun descriptor(m: MutableMethod) = "${m.definingClass}->${m.name}(${m.parameterTypes.joinToString("")})${m.returnType}"
 
-private data class Checked(val target: Target, val method: MutableMethod, val indices: Map<Int, Int>)
+private data class Checked(val target: Target, val method: MutableMethod, val resolution: Resolution)
 
 private fun verifyTarget(t: Target): Checked {
     val owner = t.descriptor.substringBefore("->")
     val m = mutableClassDefBy(owner).methods.single { descriptor(it) == t.descriptor }
-    require(m.implementation!!.registerCount == t.registers) { "Register layout changed: ${t.descriptor}" }
+    val count = m.implementation!!.registerCount
     val instructions = m.implementation!!.instructions.toList()
-    val indices = resolveSites(t, instructions)
+    val resolution = resolveSites(t, instructions, count, parameterTypes(m))
+    require(count + EXTRA <= 256) { "Probe scratch register limit: ${t.descriptor}" }
+    println("Related probe layout: ${t.descriptor} raw=${t.registers} live=$count entry=${resolution.entry} roles=${resolution.roles}")
     val offsets = mutableListOf<Int>()
     var offset = 0
     instructions.forEach { offsets += offset; offset += it.codeUnits }
-    for ((raw, index) in indices)
+    for ((raw, index) in resolution.indices)
         println("Related probe anchor: ${t.descriptor} raw=${raw.toString(16)} live=${offsets[index].toString(16)} index=$index")
-    return Checked(t,m,indices)
+    return Checked(t,m,resolution)
 }
 
 // Expand only our instrumented methods. Keep every original v-register number and
@@ -182,8 +237,8 @@ private fun instrument(c: Checked) {
         old.accessFlags, old.annotations, old.hiddenApiRestrictions, expanded).toMutable()
     val impl = m.implementation!!
     val originalInstructions = impl.instructions.toList()
-    val copiedIndices = resolveSites(c.target, originalInstructions)
-    require(copiedIndices == c.indices) { "Instruction indices changed when copying ${c.target.descriptor}" }
+    val copied = resolveSites(c.target, originalInstructions, count, parameterTypes(old))
+    require(copied == c.resolution) { "Probe anchors changed when copying ${c.target.descriptor}" }
     val branches = originalInstructions.flatMap {
         when(it) {
             is BuilderOffsetInstruction -> listOf(it.target)
@@ -208,7 +263,12 @@ private fun instrument(c: Checked) {
             appendLine("invoke-static/range {v$base .. v${base+7}}, $PROBE->record(Ljava/lang/String;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;I)V")
         }
     }
-    val injections = c.target.sites.map { copiedIndices.getValue(it.offset) to it }.toMutableList()
+    fun live(role: Int) = if (role < 0) role else copied.roles.getValue(role)
+    val injections = c.target.sites.map { site ->
+        copied.indices.getValue(site.offset) to site.copy(
+            args=site.args.map(::live), number=site.number?.let(::live),
+            saves=site.saves.mapValues { live(it.value) })
+    }.toMutableList()
     if (c.target.returns) {
         originalInstructions.forEachIndexed { index, insn ->
             if (insn.opcode == Opcode.RETURN_OBJECT)
@@ -232,7 +292,7 @@ private fun instrument(c: Checked) {
             first.location.labels.add(label)
         }
     }
-    val types = listOf(old.definingClass) + old.parameterTypes.map { it.toString() }
+    val types = parameterTypes(old)
     require(types.none { it == "J" || it == "D" })
     val firstParam = count - types.size
     require(base + 7 < firstParam + EXTRA)
@@ -260,14 +320,26 @@ val relatedItemsProbePatch = patch(
         val settings = mutableClassDefBy("Lgek;").methods.single {
             descriptor(it) == "Lgek;->u(Landroidx/preference/PreferenceScreen;)V"
         }
-        require(settings.implementation!!.registerCount == 4)
+        val settingsCode = settings.implementation!!
+        val settingsInstructions = settingsCode.instructions.toList()
+        val (settingsEntry, settingsParams) = workingParameters(settingsInstructions, settingsCode.registerCount, parameterTypes(settings), 4)
+        val (receiver, screen) = settingsParams
+        // Original entry checks the screen and then overwrites the scratch local.
+        val first = settingsInstructions.getOrNull(settingsEntry)
+        val second = settingsInstructions.getOrNull(settingsEntry + 1)
+        require(first?.opcode == Opcode.IF_EQZ && first.registersUsed == listOf(screen) &&
+            second?.opcode == Opcode.IGET_OBJECT &&
+            (second as? ReferenceInstruction)?.reference.toString() == "Lgek;->a:Lges;" &&
+            second.registersUsed.size == 2 && second.registersUsed[1] == receiver)
+        val scratch = second.registersUsed[0]
+        require(scratch !in settingsParams && scratch < 16 && receiver < 16)
         checked.forEach(::instrument)
         // Native settings fallback, identical gate to the existing patch.
         app.morphe.patcher.extensions.InstructionExtensions.run {
-            settings.addInstructionsWithLabels(0, """
-                instance-of v0, v2, Lpty;
-                if-eqz v0, :probe_no_settings
-                invoke-static {v3}, $ENTRY->install(Ljava/lang/Object;)V
+            settings.addInstructionsWithLabels(settingsEntry, """
+                instance-of v$scratch, v$receiver, Lpty;
+                if-eqz v$scratch, :probe_no_settings
+                invoke-static/range {v$screen .. v$screen}, $ENTRY->install(Ljava/lang/Object;)V
                 :probe_no_settings
                 nop
             """.trimIndent())

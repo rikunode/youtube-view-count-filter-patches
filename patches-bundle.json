@@ -1,7 +1,7 @@
 {
   "created_at": "2026-11-26T02:31:51",
   "description": "Observation-only related-items diagnostic probe for YouTube 21.30.216. Separate opt-in patch, bounded privacy-safe JSONL export. Existing filter unchanged.",
-  "download_url": "https://github.com/rikunode/youtube-view-count-filter-patches/releases/download/v0.1.12/patches-0.1.12.mpp",
+  "download_url": "https://github.com/rikunode/youtube-view-count-filter-patches/releases/download/v0.1.13/patches-0.1.13.mpp",
   "signature_download_url": "",
-  "version": "0.1.12"
+  "version": "0.1.13"
 }
