@@ -1,9 +1,9 @@
 {
   "NOTE": "Do NOT manually edit this file. This file is automatically updated when semantic release (release.yml) runs. Manually editing this file can break your releases and break third party tools that use this file.",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "patches": [
     {
-      "name": "Related items diagnostic probe (Rikunode)",
+      "name": "Related items diagnostic probe",
       "description": "Observation-only related-items probe. Select instead of View count filter. YouTube 21.30.216 only.",
       "default": false,
       "category": null,
@@ -29,7 +29,7 @@
       "options": []
     },
     {
-      "name": "View count filter (Rikunode)",
+      "name": "View count filter",
       "description": "Independent feed component filter and runtime settings for YouTube 21.30.216.",
       "default": false,
       "category": null,

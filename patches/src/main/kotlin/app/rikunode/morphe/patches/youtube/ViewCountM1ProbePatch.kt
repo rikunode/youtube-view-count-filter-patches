@@ -69,7 +69,7 @@ private object SettingsScreenFingerprint : Fingerprint(
 
 @Suppress("unused")
 val viewCountFilterPatch = patch(
-    name = "View count filter (Rikunode)",
+    name = "View count filter",
     description = "Independent feed component filter and runtime settings for YouTube 21.30.216.",
     default = false,
 ) {

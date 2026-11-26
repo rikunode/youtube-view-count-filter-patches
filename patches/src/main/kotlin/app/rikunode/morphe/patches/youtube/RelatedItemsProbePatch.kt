@@ -224,7 +224,7 @@ private fun instrument(c: Checked) {
 
 @Suppress("unused")
 val relatedItemsProbePatch = patch(
-    name = "Related items diagnostic probe (Rikunode)",
+    name = "Related items diagnostic probe",
     description = "Observation-only related-items probe. Select instead of View count filter. YouTube 21.30.216 only.",
     default = false,
 ) {

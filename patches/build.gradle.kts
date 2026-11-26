@@ -2,7 +2,7 @@ group = "app.rikunode.youtubeviewcount"
 
 patches {
     about {
-        name = "Rikunode View Count Filter"
+        name = "View Count Filter"
         description = "Independent view-count feed filter for YouTube 21.30.216"
         source = "https://github.com/rikunode/youtube-view-count-filter-patches"
         author = "rikunode"
