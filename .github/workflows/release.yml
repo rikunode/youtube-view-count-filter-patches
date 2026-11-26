@@ -34,7 +34,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import zipfile
-          path = 'patches/build/libs/patches-0.1.9.mpp'
+          path = 'patches/build/libs/patches-0.1.10.mpp'
           with zipfile.ZipFile(path) as bundle:
               dex = bundle.getinfo('classes.dex')
               assert dex.file_size > 0, 'classes.dex is empty'
@@ -45,7 +45,7 @@ jobs:
       - name: Prepare assets and SHA256SUMS
         run: |
           mkdir -p dist
-          cp patches/build/libs/patches-0.1.9.mpp dist/patches-0.1.9.mpp
+          cp patches/build/libs/patches-0.1.10.mpp dist/patches-0.1.10.mpp
           cd dist
           sha256sum *.mpp > SHA256SUMS
           sha256sum -c SHA256SUMS
@@ -58,10 +58,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/patches-0.1.9.mpp
+            dist/patches-0.1.10.mpp
             dist/SHA256SUMS
           body: |
-            Diagnostic Probe v2 v0.1.9: records bounded per-identifier content fingerprints of Lxcv primitive/string/enum fields (one level), List size and first element class, and Lxds class. UI supports Copy and Clear. Filtering remains identical to v0.1.8 (Home/Search/Subscriptions, same thresholds and fail-open); Related-video filtering is NOT enabled.
+            v0.1.10 adds the separate observation-only Related items diagnostic probe with bounded JSONL export. Select it instead of the existing view count filter. YouTube 21.30.216 only. Existing patch behavior and defaults unchanged.
           generate_release_notes: false
           draft: false
           prerelease: true

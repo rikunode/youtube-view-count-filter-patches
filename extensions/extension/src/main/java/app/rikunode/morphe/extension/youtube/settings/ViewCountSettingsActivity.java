@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.content.SharedPreferences;
 import android.text.InputType;
@@ -17,6 +18,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import app.rikunode.morphe.extension.youtube.filters.ViewCountFilter;
 import app.rikunode.morphe.extension.youtube.filters.ViewCountProbe;
+import app.rikunode.morphe.extension.youtube.filters.RelatedItemsProbe;
 
 public final class ViewCountSettingsActivity extends Activity {
     private SharedPreferences preferences;
@@ -25,6 +27,10 @@ public final class ViewCountSettingsActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        if (RelatedItemsProbe.enabled()) {
+            RelatedItemsProbeUI.show(this);
+            return;
+        }
         preferences = getSharedPreferences(ViewCountFilter.PREF_FILE, MODE_PRIVATE);
         ViewCountFilter.initialize(this);
         ScrollView scroll = new ScrollView(this);
@@ -89,6 +95,14 @@ public final class ViewCountSettingsActivity extends Activity {
         });
         column.addView(clear);
         setContentView(scroll);
+    }
+
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request == RelatedItemsProbeUI.EXPORT && result == RESULT_OK && data != null && data.getData() != null
+                && RelatedItemsProbe.enabled()) {
+            RelatedItemsProbeUI.export(this, data.getData());
+        }
     }
 
     private void toggle(LinearLayout column, String label, String key) {
