@@ -71,8 +71,10 @@ class VerifyDiagnostic {
             }
             System.out.println("TYPE PASS "+m+" calls="+hooks.size());
         }
-        check(methods==22&&coverage==1,"unexpected coverage methods="+methods+" manifests="+coverage);
-        for(String s:List.of("controller","reach_controller","reach_watch_t","reach_watch_s","reach_section_bind","bind_predicate","predicate","lookup_request","lookup_optional_first","lookup_empty_first","lookup_result_first","lookup_result_confirmed","lookup_optional_second","lookup_present_second","lookup_result_second"))
+        check(methods==48&&coverage==1,"unexpected coverage methods="+methods+" manifests="+coverage);
+        for(String s:List.of("controller","reach_controller","reach_watch_t","reach_watch_s","reach_section_bind","bind_predicate","predicate","lookup_request","lookup_optional_first","lookup_empty_first","lookup_result_first","lookup_result_confirmed","lookup_optional_second","lookup_present_second","lookup_result_second",
+            "source_g","source_d","source_cached","source_text","source_empty","ghost_unlabelled","ghost_metadata","ghost_slim","ghost_shelf","ghost_wrap","ghost_cached_result","ghost_text_result",
+            "select_section","select_shelf","select_bero","select_other","select_direct","select_empty","model_list","host_scope_begin","host_models","host_scope_end","host_f_enter","host_f_result","host_f_null","host_f_attach_x","host_f_attach_w","host_f_commit","host_s_begin","host_s_convert","host_s_result","host_s_nested","host_s_nested_done","host_s_replace","host_s_end","host_s_aborted","host_ah_optional","host_ah_get","host_ah_enter","host_ah_result","host_ah_replace","host_ah_end","host_replace_begin","host_replace_lists","host_replace_attach_x","host_replace_attach_w","host_replace_commit","aux_host","direct_blaz","direct_bero","direct_bdsp","bridge_bero","bridge_rrl","bridge_atoi_cached","bridge_atoi_converted","bridge_blaz","bridge_callable","bridge_list_empty","bridge_list_result","bridge_child_enter","bridge_child_done","bridge_sink_abstract","bridge_sink_list","bridge_callable_result","bridge_bdsp"))
             check(sites.contains(s),"missing "+s);
         System.out.println("PASS method analyzer: "+methods+" methods, "+calls+" void calls, sites="+sites.size());
         new SdkDexVerifier(sdk,"36.0.0").verifyDexDirectory(dir);

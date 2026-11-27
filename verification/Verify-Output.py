@@ -6,8 +6,8 @@ analysis, receipt, aapt = map(Path, sys.argv[1:4])
 sys.path.insert(0,str(analysis))
 import inspect_dex as d
 source=Path("patches/src/main/kotlin/app/rikunode/morphe/patches/youtube/RelatedItemsProbePatch.kt").read_text(encoding="utf-8")
-targets=dict((m,int(n)) for m,n in re.findall(r'Target\("classes[^"]*",\s*"([^"]+)",\s*(\d+),',source))
-assert len(targets)==22, len(targets)
+targets=dict((m.replace(r'\$','$'),int(n)) for m,n in re.findall(r'Target\("classes[^"]*",\s*"([^"]+)",\s*(\d+),',source))
+assert len(targets)==48, len(targets)
 def read(path):
     out={}; coverage=[]; custom=set()
     with ZipFile(path) as z:
@@ -87,11 +87,11 @@ for env in ("stable","dev14"):
     for method in targets:
         x,p=base[method];y,q=patched[method]
         old=struct.unpack_from("<4H",x.data,p);new=struct.unpack_from("<4H",y.data,q)
-        assert new[0]==old[0]+24 and new[1]==old[1] and new[3]==old[3],(method,old,new)
+        assert new[0]==old[0]+max(24,old[1]+13) and new[1]==old[1] and new[3]==old[3],(method,old,new)
         orig,_=normalized(x,p,old[0],False);actual,n=normalized(y,q,old[0],True)
         assert orig==actual,(env,method,len(orig),len(actual))
         calls+=n
-    assert calls==53,calls
+    assert calls==122,calls
     print("PASS original instructions, branch/switch targets, register bank and try count",env,len(targets),calls)
     for mode in ("probe","filter","neither"):
         apk=receipt/(env+"-"+mode)/"patched.apk"

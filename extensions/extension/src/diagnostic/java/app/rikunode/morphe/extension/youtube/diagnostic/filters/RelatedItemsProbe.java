@@ -24,7 +24,8 @@ public final class RelatedItemsProbe {
     private static final Object MISSING = new Object();
     private static volatile State state;
     private static final Map<String,Long> early = new LinkedHashMap<>();
-    private static final int MAX_SITES = 128;
+    // Fixed upper bound exceeds the generated site catalog; never merge required sites into other.
+    private static final int MAX_SITES = 256;
     private static final List<WeakReference<?>[]> observedControllers=new ArrayList<>();
     private static void rememberController(Object a,Object b){
         if(a==null||b==null)return;
@@ -46,11 +47,11 @@ public final class RelatedItemsProbe {
         return map.containsKey(key)||map.size()<limit-1?key:"other";
     }
     private static final class Counts {
-        long attempted,beforeReady,accepted,dropped,afterStop,observerError,emitted;
+        long attempted,beforeReady,accepted,dropped,afterStop,observerError,emitted,preScopeSkipped;
         JSONObject json() throws Exception {
             return new JSONObject().put("attempted",attempted).put("before_ready",beforeReady)
                 .put("accepted",accepted).put("dropped",dropped).put("after_stop",afterStop)
-                .put("observer_error",observerError).put("emitted",emitted);
+                .put("observer_error",observerError).put("emitted",emitted).put("pre_scope_skipped",preScopeSkipped);
         }
     }
     private static final class Loss {
@@ -75,6 +76,7 @@ public final class RelatedItemsProbe {
             if(old!=null && old.writer!=null && old.writer.isAlive()) return;
             State s=new State(context.getApplicationContext());
             s.sample=sample;
+            if(!"unlabelled".equals(sample))s.openDiscovery();
             for(Map.Entry<String,Long> e:early.entrySet()){
                 Counts c=s.counts(e.getKey());c.attempted+=e.getValue();c.beforeReady+=e.getValue();
                 s.noteLoss(e.getKey(),"before_ready",e.getValue(),true);
@@ -126,6 +128,8 @@ public final class RelatedItemsProbe {
                     "watch_metadata","watch_comments","home","search","subscriptions",
                     "playlist","watch_playlist","player_retained","unlabelled").contains(sample)) return;
             s.sample = sample;
+            s.discoveryActive=false;s.discoveryScope=0;
+            if(!"unlabelled".equals(sample))s.openDiscovery();
             for(Row row:s.rows.values())row.lastGeometry=null;
             s.emit(s.event("sample_mark","operator"));
         }} catch (Throwable ignored) {}
@@ -149,6 +153,7 @@ public final class RelatedItemsProbe {
             return "Run: " + s.run + "\nWriter ready: " + s.ready + "\nRecording: " + s.recording
                     + "\nSample: " + s.sample + "\nAccepted: " + s.events + "\nDropped: " + s.dropped
                     + "\nCoverage: " + (s.partial?"PARTIAL":"installed; not a verification result")
+                    + "\nDiscovery incomplete: " + s.discoveryIncomplete
                     + (s.loss == null ? "" : "\nLoss: " + s.loss)
                     + "\nWriter finished: " + (s.writer!=null&&!s.writer.isAlive());
         }
@@ -242,7 +247,10 @@ public final class RelatedItemsProbe {
         final JSONArray coverage;
         Thread writer;
         volatile boolean ready;
-        boolean partial, causalLoss;
+        boolean partial, causalLoss, discoveryIncomplete, discoveryActive, requiredMissing;
+        long sequence, discoveryScope;
+        final Map<Long,Set<Long>> topCandidates=new HashMap<>();
+        final Map<Long,Map<Long,Long>> committedHosts=new HashMap<>();
         String activeSite;
         final ReferenceQueue<Object> collected = new ReferenceQueue<>();
         final Map<IdentityRef,Long> identities = new HashMap<>();
@@ -257,7 +265,8 @@ public final class RelatedItemsProbe {
         final ThreadLocal<Map<String,Root>> roots = new ThreadLocal<>();
         final Handler main = new Handler(Looper.getMainLooper());
         long next=1, events, dropped;
-        int serializedSamples;
+        int serializedSamples, preTargetSamples, discoverySamples;
+        long preTraceSkipped;
         volatile boolean recording = true;
         String sample="unlabelled", loss;
 
@@ -266,8 +275,11 @@ public final class RelatedItemsProbe {
             if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Cannot create run directory");
             file=new File(dir,run+".jsonl");
             coverage=new JSONArray(coverageManifest());
-            partial=coverage.length()==0;
-            for(int i=0;i<coverage.length();i++)if(!"installed".equals(coverage.getJSONObject(i).optString("status")))partial=true;
+            partial=coverage.length()==0;requiredMissing=partial;
+            for(int i=0;i<coverage.length();i++)if(!"installed".equals(coverage.getJSONObject(i).optString("status"))){
+                partial=true;
+                if("true".equals(coverage.getJSONObject(i).optString("required")))requiredMissing=true;
+            }
             byte[] secret=new byte[32];
             new SecureRandom().nextBytes(secret);
             mac=Mac.getInstance("HmacSHA256");
@@ -277,7 +289,7 @@ public final class RelatedItemsProbe {
 
         void start() {
             synchronized(this){
-                try{emit(event("run_start","provider").put("coverage",coverage).put("partial",partial));}
+                try{emit(event("run_start","provider").put("coverage",coverage).put("partial",partial).put("schemaVersion",2).put("budget",budget()));}
                 catch(Exception ex){stopForLoss("start_error");}
             }
             writer=new Thread(() -> {
@@ -344,7 +356,8 @@ public final class RelatedItemsProbe {
         void noteLoss(String site,String reason,long count,boolean causal){
             partial=true;causalLoss|=causal;
             if(loss==null)loss=reason;
-            String key=boundedKey(losses,site+":"+reason,512);
+            if(discoveryActive&&causal)discoveryIncomplete=true;
+            String key=boundedKey(losses,site+":"+reason+(discoveryActive?":scope="+discoveryScope:""),512);
             Loss l=losses.get(key);if(l==null){l=new Loss();losses.put(key,l);}
             l.last=SystemClock.elapsedRealtime();l.count+=count;
         }
@@ -353,9 +366,10 @@ public final class RelatedItemsProbe {
             JSONObject c=new JSONObject(),l=new JSONObject();
             for(Map.Entry<String,Counts> e:counters.entrySet())c.put(e.getKey(),e.getValue().json());
             for(Map.Entry<String,Loss> e:losses.entrySet())l.put(e.getKey(),e.getValue().json());
-            return event("run_summary",source).put("coverage",coverage).put("partial",partial)
-                .put("causalLoss",causalLoss).put("captureStopped",!recording)
-                .put("accepted",events).put("dropped",dropped).put("counters",c).put("losses",l);
+            return event("run_summary",source).put("coverage",coverage).put("partial",partial).put("schemaVersion",2)
+                .put("causalLoss",causalLoss).put("discoveryIncomplete",discoveryIncomplete)
+                .put("decisionBlocked",requiredMissing||causalLoss||discoveryIncomplete).put("budget",budget()).put("captureStopped",!recording)
+                .put("accepted",events).put("dropped",dropped).put("preTraceSkipped",preTraceSkipped).put("counters",c).put("losses",l);
         }
 
         void stopForLoss(String reason) {
@@ -365,7 +379,8 @@ public final class RelatedItemsProbe {
 
         JSONObject event(String event,String site) throws Exception {
             return new JSONObject().put("run",run).put("sample",sample).put("event",event)
-                    .put("site",site).put("elapsedMs",SystemClock.elapsedRealtime());
+                    .put("site",site).put("elapsedMs",SystemClock.elapsedRealtime())
+                    .put("seq",++sequence).put("discoveryScope",nilId(discoveryScope));
         }
 
         void emit(JSONObject o) throws Exception {
@@ -376,11 +391,23 @@ public final class RelatedItemsProbe {
             boolean highFrequency="element".equals(event)||"element_edge".equals(event);
             boolean bulk=highFrequency && "unjoined".equals(o.optString("join")) &&
                 "no_exact_reference".equals(o.optString("joinReason"));
+            boolean preTrace=!discoveryActive&&isDiscoveryTrace(site)&&!site.startsWith("ghost_")&&!site.startsWith("source_");
             int lane=event.startsWith("run_")||event.equals("writer_ready")||event.equals("sample_mark")
-                ?CaptureQueue.CONTROL:bulk?CaptureQueue.BULK:highFrequency?CaptureQueue.CORRELATED:CaptureQueue.UPSTREAM;
+                ?CaptureQueue.CONTROL:preTrace?CaptureQueue.BULK:bulk?
+                (discoveryActive?("edge_d_2".equals(site)?CaptureQueue.DISCOVERY_EDGE:CaptureQueue.DISCOVERY):CaptureQueue.BULK)
+                :highFrequency?CaptureQueue.CORRELATED:CaptureQueue.UPSTREAM;
+            if(discoveryActive&&"edge_d_2".equals(site))lane=CaptureQueue.DISCOVERY_EDGE;
             byte[] bytes=(o.toString()+"\n").getBytes(StandardCharsets.UTF_8);
             String reason=queue.offer(new CaptureQueue.Item(site,bytes,lane));
-            if(reason!=null){c.dropped++;dropped++;noteLoss(site,reason,1,!bulk);return;}
+            if(reason!=null&&lane==CaptureQueue.DISCOVERY_EDGE){
+                lane=CaptureQueue.DISCOVERY;reason=queue.offer(new CaptureQueue.Item(site,bytes,lane));
+            }
+            if(reason!=null){
+                c.dropped++;dropped++;
+                if(discoveryActive)discoveryIncomplete=true;
+                noteLoss(site,reason,1,!bulk&&!preTrace);
+                return;
+            }
             c.accepted++;events++;
         }
 
@@ -692,6 +719,8 @@ public final class RelatedItemsProbe {
                     JSONObject node=typed(child);
                     Object bits=field(child,"b"),section=field(child,"m");
                     node.put("modelPresent",bits instanceof Integer?present(child,"b"):JSONObject.NULL);
+                    modelFields(node,child);
+                    if(!pre&&type(child,"bkfy"))associate(topCandidates,id(child),singleton(id(llpu)));
                     merge(node,sectionMeta(null,section));
                     items(node,"children",field(section,"e"));
                     children.put(node);
@@ -946,9 +975,10 @@ public final class RelatedItemsProbe {
             if(site.equals("element_path") && type(b,"wfo")) {countStatus="unsupported";countSource="wfo";}
             else if(site.equals("element_path") && f!=null && "video_lockup_with_signal".equals(f.key) && type(b,"wvb")){
                 countSource="serialized_probe";
-                if(serializedSamples>=32)countStatus="not_checked";
-                else{
-                    serializedSamples++;
+                if(serializedSamples>=32 || (discoveryActive?discoverySamples>=28:preTargetSamples>=4)){
+                    countStatus="not_checked";j.put("countReason","reserved_sample_budget");
+                }else{
+                    serializedSamples++;if(discoveryActive)discoverySamples++;else preTargetSamples++;
                     try{
                         Object raw=b.getClass().getMethod("f").invoke(b);
                         if(raw instanceof byte[] && ((byte[])raw).length<=256*1024){
@@ -1035,10 +1065,297 @@ public final class RelatedItemsProbe {
             obj(j,"controllerObject",a);obj(j,"controllerHost",b);emit(j);
         }
 
+        // Discovery events describe actual operands. They deliberately do not
+        // promote the old section join or classify a real card as related.
+        void openDiscovery(){
+            if(!discoveryActive){discoveryActive=true;discoveryScope=serial();}
+        }
+
+        JSONObject budget() throws Exception{
+            JSONObject out=new JSONObject();long[][] rows=queue.usage();
+            for(int i=0;i<rows.length;i++){
+                long[] v=rows[i];
+                out.put(CaptureQueue.NAMES[i],new JSONObject().put("totalLimit",v[0])
+                    .put("byteLimit",v[1]).put("pendingLimit",v[2]).put("pendingByteLimit",v[3])
+                    .put("accepted",v[4]).put("acceptedBytes",v[5]).put("pending",v[6]).put("pendingBytes",v[7]));
+            }
+            return out;
+        }
+
+        static boolean isDiscoveryTrace(String s){
+            return s.startsWith("source_")||s.startsWith("ghost_")||s.startsWith("select_")||
+                s.equals("model_list")||s.startsWith("host_")||s.startsWith("direct_")||
+                s.startsWith("aux_host")||s.startsWith("bridge_");
+        }
+
+        Object bit(Object value,String name,int mask){
+            Object b=field(value,name);return b instanceof Integer?(((Integer)b)&mask)!=0:JSONObject.NULL;
+        }
+
+        void modelFields(JSONObject j,Object model) throws Exception{
+            j.put("sectionPresent",bit(model,"b",32)).put("shelfPresent",bit(model,"b",0x800000))
+                .put("compositePresent",bit(model,"e",0x40000000));
+            obj(j,"section",field(model,"m"));obj(j,"shelf",field(model,"E"));obj(j,"composite",field(model,"bD"));
+        }
+
+        void ghostEnum(JSONObject j,Object renderer) throws Exception{
+            obj(j,"renderer",renderer);
+            if(!type(renderer,"bkfd"))return;
+            Object p=bit(renderer,"b",1),v=field(renderer,"c");
+            String[] names={"UNKNOWN","SLIM_VIDEO_TITLE_BAR","SLIM_VIDEO_METADATA_BAR","VIDEO_WITH_CONTEXT",
+                "COMMENTS","VIDEO_FULL_BLEED_WITH_CONTEXT","SLIM_CHANNEL_BAR","SLIM_ACTION_BAR",
+                "SLIM_VIDEO_SUBTITLE_BAR","SIMPLE_WATCH_VIDEO_ACTION_BAR","ELEVATED_PLAYER_COMMENTS"};
+            boolean known=Boolean.TRUE.equals(p)&&v instanceof Integer;
+            int k=known?(Integer)v:-1;
+            j.put("enumPresent",p).put("ghostType",known?v:JSONObject.NULL)
+                .put("ghostName",k>=0&&k<names.length?"GHOST_CARD_TYPE_"+names[k]:"unknown");
+        }
+
+        void ghostChildren(JSONObject j,Object values,boolean shelf) throws Exception{
+            obj(j,"childrenCollection",values);JSONArray out=new JSONArray();
+            if(values instanceof Iterable<?>){
+                int seen=0;
+                for(Object child:(Iterable<?>)values){
+                    if(seen++>=MAX_LIST){stopForLoss("ghost_children_limit");break;}
+                    JSONObject entry=typed(child);
+                    if(shelf){
+                        entry.put("ghostPresent",bit(child,"e",32));ghostEnum(entry,field(child,"bc"));
+                    }else{
+                        entry.put("ghostPresent",bit(child,"h",0x20000000));
+                        entry.put("compositePresent",bit(child,"b",0x10000000));
+                        obj(entry,"composite",field(child,"R"));ghostEnum(entry,field(child,"dC"));
+                    }
+                    out.put(entry);
+                }
+                j.put("children",out).put("childrenReason","ok");
+            }else j.put("children",JSONObject.NULL).put("childrenReason",reason(values));
+        }
+
+        void modelCandidates(Object host,Object model) throws Exception{
+            Object bkfr=field(model,"a"), values=field(bkfr,"g");
+            if(!(values instanceof Iterable<?>))return;
+            int seen=0;
+            for(Object child:(Iterable<?>)values){
+                if(seen++>=MAX_LIST){stopForLoss("source_items_limit");break;}
+                if(type(child,"bkfy"))associate(topCandidates,id(child),singleton(id(host)));
+            }
+        }
+
+        // Only snapshot the two actual host lists. Do not enumerate a lazy
+        // renderer result or invoke a callback to manufacture an output.
+        void hostLists(JSONObject j,Object host,boolean update) throws Exception{
+            Object containers=field(host,"A"), models=field(host,"B");
+            items(j,"containers",containers);items(j,"models",models);
+            if(!update||!(containers instanceof List<?>)||!(models instanceof List<?>))return;
+            List<?> a=(List<?>)containers,b=(List<?>)models;
+            if(a.size()!=b.size()||a.size()>MAX_LIST){j.put("snapshotState","incomplete");discoveryIncomplete|=discoveryActive;return;}
+            long h=id(host);
+            if(h==0)return;
+            Map<Long,Long> previous=committedHosts.get(h), next=new LinkedHashMap<>();
+            JSONArray pairs=new JSONArray(),removed=new JSONArray();
+            for(int i=0;i<a.size();i++){
+                long c=id(a.get(i));if(c==0)continue;
+                long g=serial();next.put(c,g);
+                pairs.put(new JSONObject().put("container",c).put("input",nilId(id(b.get(i)))).put("generation",g));
+            }
+            if(previous!=null)for(Map.Entry<Long,Long> old:previous.entrySet()){
+                removed.put(new JSONObject().put("container",old.getKey()).put("generation",old.getValue()));
+                if(!next.containsKey(old.getKey()))sectionEpoch.remove(old.getKey());
+            }
+            committedHosts.put(h,next);
+            j.put("snapshotState","observed").put("generations",pairs).put("invalidated",removed);
+        }
+
+        void refs(JSONObject j,String[] names,Object... values) throws Exception{
+            for(int i=0;i<names.length;i++)obj(j,names[i],values[i]);
+        }
+
+        void traceFrame(JSONObject j,Frame frame) throws Exception{
+            callId(j,"callId",frame);
+            j.put("join","unjoined").put("joinReason",frame==null?"frame_unavailable":"reference_evidence_only");
+        }
+
+        void discoveryTrace(String site,Object a,Object b,Object c,Object d,Object e,Object f,int n) throws Exception{
+            // Bound preparatory observation work as well as queue bytes. The omitted
+            // pre-target evidence is never reconstructed from order or sample labels.
+            if(!discoveryActive&&!site.startsWith("ghost_")&&!site.startsWith("source_")&&
+                queue.preTargetExhausted()){
+                preTraceSkipped++;counts(site).preScopeSkipped++;return;
+            }
+            JSONObject j;
+            if(site.startsWith("source_")){
+                openDiscovery();
+                j=event("source_dispatch",site);
+                refs(j,new String[]{"rqa","rpd","lakmv","host","lakmq"},a,b,c,field(a,"am"),field(c,"g"));
+                obj(j,"bkfr",field(field(c,"g"),"a"));
+                j.put("origin",site.equals("source_g")?"rpd_g_item":site.equals("source_d")?"rpd_d_result":
+                    site.equals("source_cached")?"local_ghost_from_cached":"local_ghost_from_text_or_empty");
+                j.put("dispatch",serial());
+            }else if(site.equals("ghost_wrap")){
+                j=event("ghost_wrap",site);
+                refs(j,new String[]{"bkfr","lakmv","lakmq","wrappedBkfr"},a,b,field(b,"g"),field(field(b,"g"),"a"));
+                items(j,"items",field(a,"g"));
+            }else if(site.equals("ghost_text_result")||site.equals("ghost_cached_result")){
+                j=event("ghost_origin",site);
+                obj(j,"lakmv",site.equals("ghost_text_result")?a:b);
+                if(site.equals("ghost_cached_result"))obj(j,"rpd",a);
+            }else if(site.startsWith("ghost_")){
+                j=event("ghost_build",site);obj(j,"bkfy",a);obj(j,"builder",b);modelFields(j,a);
+                boolean shelf=site.equals("ghost_shelf");
+                j.put("branch",shelf?"shelf":site.equals("ghost_metadata")?"metadata_ghost_cards":site.equals("ghost_slim")?"slim_video_metadata":"unlabelled_ghost");
+                if(shelf){
+                    Object model=field(a,"E"),u=field(model,"u"),bero=field(u,"e");
+                    refs(j,new String[]{"bkof","bkoh","bero"},model,u,bero);
+                    j.put("shelfSubtypePresent",bit(model,"b",0x1000000)).put("beroPresent",bit(u,"b",4));
+                    ghostChildren(j,field(bero,"c"),true);
+                }else{
+                    Object section=field(a,"m");merge(j,sectionMeta(null,section));ghostChildren(j,field(section,"e"),false);
+                }
+            }else if(site.startsWith("select_")){
+                boolean empty=site.equals("select_empty");
+                j=event("model_select",site);obj(j,"bkfy",a);modelFields(j,a);
+                obj(j,"payload",empty?null:b);obj(j,"optional",empty?b:c);
+                j.put("empty",empty).put("selectionCall",serial()).put("branch",site.substring(7))
+                    .put("candidateHosts",new JSONArray(get(topCandidates,id(a))));
+                if(!empty&&(type(b,"lakmm")||type(b,"lakmu")||type(b,"bkof"))){
+                    Object bkof=type(b,"bkof")?b:field(b,"a"),u=field(bkof,"u"),bero=field(u,"e");
+                    refs(j,new String[]{"bkof","bkoh","bero"},bkof,u,bero);
+                    j.put("beroPresent",bit(u,"b",4));if(Boolean.TRUE.equals(bit(u,"b",4)))ghostChildren(j,field(bero,"c"),true);
+                }
+            }else if(site.equals("model_list")){
+                j=event("model_list",site);obj(j,"lakmq",a);items(j,"selected",b);
+            }else if(site.startsWith("aux_host")){
+                j=event("aux_host",site);refs(j,new String[]{"receiver","lakmv","host","lakmq"},a,b,c,d);
+                modelCandidates(c,d);
+            }else if(site.startsWith("host_scope_")||site.equals("host_models")){
+                j=event(site.equals("host_models")?"host_models":"host_scope",site);
+                refs(j,new String[]{"host","lakmq"},a,b);obj(j,"bkfr",field(b,"a"));
+                Frame frame=site.equals("host_scope_begin")?begin("atnz","be",a,b,c):frame("atnz","be");
+                if(frame!=null&&!frame.matches(id(a),id(b),frame.c))frame=null;
+                traceFrame(j,frame);j.put("controller",nilId(controller(a)));
+                if(site.equals("host_scope_begin")){modelCandidates(a,b);obj(j,"modeObject",c);j.put("mode",n);}
+                if(site.equals("host_models")){items(j,"selected",c);items(j,"topLevel",field(field(b,"a"),"g"));}
+                if(site.equals("host_scope_end")||site.equals("host_scope_noop")){hostLists(j,a,false);frameEnd("atnz","be");}
+            }else if(site.startsWith("host_f_")){
+                j=event(site.equals("host_f_commit")||site.equals("host_f_null")?"host_commit":"host_convert",site);
+                refs(j,new String[]{"host","input"},a,b);
+                Frame frame=site.equals("host_f_enter")?begin("atnz","F",a,b,c):frame("atnz","F");
+                if(frame!=null&&(frame.a!=id(a)||frame.b!=id(b)))frame=null;
+                traceFrame(j,frame);j.put("controller",nilId(controller(a)));
+                if(site.equals("host_f_enter")){obj(j,"converter",c);obj(j,"state",d);}
+                else{
+                    obj(j,"result",c);
+                    if(site.equals("host_f_result")&&frame!=null)frame.p1=id(c);
+                    if(site.startsWith("host_f_attach_")){
+                        refs(j,new String[]{"rowContainer","parentCollection"},d,e);
+                        if(frame!=null&&frame.p1==id(c)){frame.p2=id(d);frame.p3=id(e);}
+                    }
+                    if(site.equals("host_f_commit")){
+                        refs(j,new String[]{"rowContainer","parentCollection","attachment"},d,e,f);
+                        refs(j,new String[]{"containersCollection","modelsCollection"},field(a,"A"),field(a,"B"));
+                        boolean ok=frame!=null&&frame.p1==id(c)&&frame.p2==id(d)&&frame.p3==id(e)&&c!=null&&d!=null&&e!=null;
+                        j.put("state",ok?"committed":"unverified").put("generation",ok?serial():JSONObject.NULL);
+                        if(!ok&&discoveryActive)discoveryIncomplete=true;
+                        frameEnd("atnz","F");
+                    }
+                    if(site.equals("host_f_null")){j.put("state","null_result");frameEnd("atnz","F");}
+                }
+            }else if(site.startsWith("host_s_")){
+                j=event("host_update",site);obj(j,"host",a);
+                Frame frame=site.equals("host_s_begin")?begin("atnz","s",a,b,c):frame("atnz","s");
+                if(frame!=null&&frame.a!=id(a))frame=null;
+                traceFrame(j,frame);
+                if(site.equals("host_s_begin")){items(j,"input",b);obj(j,"states",c);hostLists(j,a,false);}
+                else if(site.equals("host_s_convert")){
+                    refs(j,new String[]{"input","converter","state"},b,c,d);
+                    if(frame!=null){frame.p1=serial();frame.p2=id(b);frame.p3=0;}
+                }else if(site.equals("host_s_result")){
+                    refs(j,new String[]{"input","result","converter"},b,c,d);
+                    if(frame!=null&&frame.p2==id(b))frame.p3=id(c);else frame=null;
+                }else if(site.startsWith("host_s_nested")){
+                    refs(j,new String[]{"input","result","oldContainer","rowContainer","parentCollection"},b,c,d,e,f);
+                    if(frame!=null&&(frame.p2!=id(b)||frame.p3!=id(c)))frame=null;
+                }else if(site.equals("host_s_replace")){
+                    refs(j,new String[]{"oldContainer","input","result"},b,c,d);j.put("index",n);
+                }else if(site.equals("host_s_end")||site.equals("host_s_aborted")){
+                    boolean ok=site.equals("host_s_end")&&frame!=null;
+                    hostLists(j,a,ok);j.put("state",ok?"committed":"incomplete");
+                    if(!ok&&discoveryActive)discoveryIncomplete=true;
+                    frameEnd("atnz","s");
+                }
+                j.put("conversionCall",frame==null?JSONObject.NULL:nilId(frame.p1));
+            }else if(site.startsWith("host_ah_")){
+                j=event("host_update",site);obj(j,"host",a);
+                if(site.equals("host_ah_replace")){refs(j,new String[]{"oldContainer","input","result","bkfy"},b,c,d,e);j.put("index",n);}
+                else if(site.equals("host_ah_optional")||site.equals("host_ah_get")){refs(j,new String[]{"bkfy","optional","payload"},b,c,d);j.put("index",n);}
+                else if(site.equals("host_ah_end"))obj(j,"bkfy",b);
+                else refs(j,new String[]{"input",site.equals("host_ah_enter")?"converter":"result","bkfy"},b,c,d);
+            }else if(site.startsWith("host_replace_")){
+                j=event("host_replace",site);
+                refs(j,new String[]{"host","oldContainer"},a,b);
+                Frame frame=site.equals("host_replace_begin")?begin("atnz","aY",a,b,c):frame("atnz","aY");
+                if(frame!=null&&(frame.a!=id(a)||frame.b!=id(b)))frame=null;
+                traceFrame(j,frame);
+                if(site.startsWith("host_replace_attach_")){
+                    refs(j,new String[]{"result","oldRowContainer","newRowContainer","parentCollection"},c,d,e,f);
+                    if(frame!=null&&frame.p1==id(c))frame.p2=id(e);
+                }else{
+                    refs(j,new String[]{"input","result"},c,d);
+                    if(site.equals("host_replace_lists")){
+                        refs(j,new String[]{"containersCollection","modelsCollection"},field(a,"A"),field(a,"B"));j.put("index",n);
+                    }
+                    if(site.equals("host_replace_begin")&&frame!=null){frame.p1=id(d);j.put("index",n);}
+                    if(site.equals("host_replace_commit")){
+                        boolean ok=frame!=null&&frame.c==id(c)&&frame.p1==id(d)&&frame.p2!=0;
+                        j.put("state",ok?"committed":"unverified").put("generation",ok?serial():JSONObject.NULL);
+                        if(ok&&b!=d)sectionEpoch.remove(id(b));
+                        if(!ok&&discoveryActive)discoveryIncomplete=true;
+                        frameEnd("atnz","aY");
+                    }
+                }
+            }else if(site.startsWith("direct_")){
+                j=event("direct_converter",site);refs(j,new String[]{"host","input","result"},a,b,c);
+            }else{
+                j=event("container_bridge",site);
+                switch(site){
+                    case "bridge_bero":refs(j,new String[]{"container","bkof","bero","childrenCollection"},a,b,c,d);break;
+                    case "bridge_rrl":refs(j,new String[]{"container","bkof","childrenCollection"},a,b,c);break;
+                    case "bridge_atoi_cached":case "bridge_atoi_converted":refs(j,new String[]{"container","bkof","childrenCollection","convertedList"},a,b,c,d);break;
+                    case "bridge_blaz":refs(j,new String[]{"container","blaz","childrenCollection","convertedList","rowContainer"},a,b,c,d,e);break;
+                    case "bridge_bdsp":refs(j,new String[]{"container","bdsp","childrenCollection","convertedList","rowContainer","row"},a,b,c,d,e,f);break;
+                    case "bridge_callable":refs(j,new String[]{"callable","converters","childrenCollection"},a,b,c);break;
+                    case "bridge_list_empty":case "bridge_list_result":refs(j,new String[]{"converter","childrenCollection","convertedList"},a,b,c);break;
+                    case "bridge_child_enter":case "bridge_child_done":{
+                        refs(j,new String[]{"callable","child","converter","sink"},a,b,c,d);
+                        Frame frame=site.endsWith("enter")?begin("atsi","call",a,b,d):frame("atsi","call");
+                        if(frame!=null&&!frame.matches(id(a),id(b),id(d)))frame=null;
+                        traceFrame(j,frame);
+                        if(site.endsWith("done"))frameEnd("atsi","call");break;
+                    }
+                    case "bridge_sink_abstract":case "bridge_sink_list":{
+                        refs(j,new String[]{"sink","outputList","output"},a,b,c);
+                        Frame frame=frame("atsi","call");
+                        if(frame!=null&&frame.c!=id(a))frame=null;
+                        traceFrame(j,frame);j.put("inputChild",frame==null?JSONObject.NULL:nilId(frame.b));break;
+                    }
+                    case "bridge_callable_result":refs(j,new String[]{"callable","outputList","convertedList"},a,b,c);break;
+                    default:throw new IllegalArgumentException("unknown discovery site");
+                }
+            }
+            j.put("discoveryScope",nilId(discoveryScope));
+            emit(j);
+        }
+
         void observe(String site,Object a,Object b,Object c,Object d,Object e,Object f,int n) throws Exception {
             if(site.equals("controller"))controllerEvent(a,b,"live");
+            else if(isDiscoveryTrace(site))discoveryTrace(site,a,b,c,d,e,f,n);
             else if(site.startsWith("reach_")){
-                JSONObject j=event("hook_reach",site);obj(j,"receiver",a);obj(j,"input",b);emit(j);
+                if(site.equals("reach_watch_s")||site.equals("reach_watch_t"))openDiscovery();
+                JSONObject j=event("hook_reach",site);obj(j,"receiver",a);obj(j,"input",b);
+                if(site.equals("reach_watch_s")||site.equals("reach_watch_t")){
+                    obj(j,"host",field(a,"am"));obj(j,"lakmq",field(b,"g"));
+                }
+                emit(j);
             }else if(site.equals("predicate")||site.equals("bind_predicate")){
                 JSONObject j=event("related_predicate",site).put("result",n!=0);
                 obj(j,"lakmn",a);obj(j,"controllerHost",b);

@@ -14,8 +14,8 @@ $env:JAVA_HOME=Split-Path (Split-Path $Java)
 $env:Path="$(Split-Path $Java);$env:Path"
 $jar=Join-Path $ToolDir $(if($Environment -eq 'stable'){'morphe-desktop-2.3.0-all.jar'}else{'morphe-desktop-2.4.0-dev.3-all.jar'})
 $official=Join-Path $ToolDir $(if($Environment -eq 'stable'){'patches-2.4.0.mpp'}else{'patches-2.4.0-dev.14.mpp'})
-$diag=Join-Path $BundleDir 'diagnostic-0.1.14.mpp'
-$filter=Join-Path $BundleDir 'patches-0.1.14.mpp'
+$diag=Join-Path $BundleDir 'diagnostic-0.1.15.mpp'
+$filter=Join-Path $BundleDir 'patches-0.1.15.mpp'
 $folder=Join-Path $ReceiptDir "$Environment-$Case"
 New-Item -ItemType Directory -Force $folder | Out-Null
 $out=Join-Path $folder 'patched.apk'
