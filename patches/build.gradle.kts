@@ -1,9 +1,15 @@
 group = "app.rikunode.youtubeviewcount"
 
+val diagnosticBundle = providers.gradleProperty("diagnosticBundle").orNull == "true"
+
+kotlin.sourceSets.named("main") {
+    kotlin.exclude(if (diagnosticBundle) "**/ViewCountM1ProbePatch.kt" else "**/RelatedItemsProbePatch.kt")
+}
+
 patches {
     about {
         name = "View Count Filter"
-        description = "Independent view-count feed filter for YouTube 21.30.216"
+        description = if (diagnosticBundle) "Observation-only related-items diagnostic probe for YouTube 21.30.216" else "Independent view-count feed filter for YouTube 21.30.216"
         source = "https://github.com/rikunode/youtube-view-count-filter-patches"
         author = "rikunode"
         contact = "https://github.com/rikunode"
@@ -27,6 +33,7 @@ tasks {
 
         dependsOn("buildAndroid")
         systemProperty("patchesVersion", project.version.toString())
+        systemProperty("patchListOutput", if (diagnosticBundle) "../diagnostic/patches-list.json" else "../patches-list.json")
 
         classpath = sourceSets["main"].runtimeClasspath + patchListGeneratorClasspath
         mainClass.set("util.PatchListGeneratorKt")

@@ -1,5 +1,19 @@
 # Rikunode View Count Filter for YouTube
 
+
+## v0.1.14: separated diagnostic source
+
+The existing repository source is filter-only. To collect related-items diagnostics, add this **separate JSON source URL** in Morphe Manager:
+
+https://raw.githubusercontent.com/rikunode/youtube-view-count-filter-patches/main/diagnostic/patches-bundle.json
+
+Enable prereleases if required. Select only Related items diagnostic probe alongside the official patches; disable/unselect the independent View count filter source. Do not select both. The separate diagnostic MPP is also available from the release assets. Prefer the remote JSON source over local import, since both bundles retain the existing bundle display name.
+
+Open the diagnostic settings, wait for writer-ready, and start a new run for each capture. Recreate the watch controller after starting. Stop and export each run before starting another. A partial run or a dropped event is not proof that the associated hook or event is absent.
+
+See verification/README.md for the release acceptance procedure.
+
+
 An **independent, unofficial** third-party patch for YouTube feeds, applied alongside official Morphe Patches. This project is **not affiliated with Morphe, Google, YouTube, Anddea, or ReVanced**.
 
 [日本語 README](README.ja.md) · [Design and verification](DESIGN.md) · [License](LICENSE) · [Notices](NOTICE)

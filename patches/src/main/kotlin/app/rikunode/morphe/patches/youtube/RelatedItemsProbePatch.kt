@@ -1,6 +1,10 @@
 package app.rikunode.morphe.patches.youtube
 
 import app.morphe.patcher.patch.*
+import app.morphe.patcher.Fingerprint
+import app.morphe.patcher.string
+import com.android.tools.smali.dexlib2.AccessFlags
+import app.morphe.patcher.StringComparisonType
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod
 import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod.Companion.toMutable
@@ -15,10 +19,10 @@ import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation
 
-private const val PROBE = "Lapp/rikunode/morphe/extension/youtube/filters/RelatedItemsProbe;"
-private const val ENTRY = "Lapp/rikunode/morphe/extension/youtube/settings/ViewCountSettingsEntry;"
-private const val ACT = "app.rikunode.morphe.extension.youtube.settings.ViewCountSettingsActivity"
-private const val INIT = "app.rikunode.morphe.extension.youtube.settings.RelatedItemsProbeProvider"
+private const val PROBE = "Lapp/rikunode/morphe/extension/youtube/diagnostic/filters/RelatedItemsProbe;"
+private const val ENTRY = "Lapp/rikunode/morphe/extension/youtube/diagnostic/settings/ViewCountSettingsEntry;"
+private const val ACT = "app.rikunode.morphe.extension.youtube.diagnostic.settings.RelatedItemsProbeActivity"
+private const val INIT = "app.rikunode.morphe.extension.youtube.diagnostic.settings.RelatedItemsProbeProvider"
 private const val EXTRA = 24
 
 // Raw APK offsets are provenance/log labels only.
@@ -43,7 +47,8 @@ private fun bindRole(roles: MutableMap<Int, Int>, role: Int, live: Int): Boolean
 }
 
 private fun parameterTypes(m: MutableMethod) =
-    listOf(m.definingClass) + m.parameterTypes.map { it.toString() }
+    (if (AccessFlags.STATIC.isSet(m.accessFlags)) emptyList() else listOf(m.definingClass)) +
+        m.parameterTypes.map { it.toString() }
 
 // Recognize a complete cloneParameters prologue, not arbitrary instructions.
 // The current incoming bank can be higher than the working bank used by the body.
@@ -78,7 +83,8 @@ private data class Site(
     val before: Anchor? = null, val following: Anchor? = null, val following2: Anchor? = null
 )
 private data class Target(val dex: String, val descriptor: String, val registers: Int,
-                          val sites: List<Site>, val returns: Boolean = false)
+                          val sites: List<Site>, val returns: Boolean = false,
+                          val entryEvent: String? = null, val predicateReturns: Boolean = false)
 private fun s(off: Int, op: Opcode, ref: String?, regs: List<Int>, event: String?,
               vararg args: Int, after: Boolean = false, num: Int? = null,
               saves: Map<Int, Int> = emptyMap(), before: Anchor? = null, following: Anchor? = null, following2: Anchor? = null) =
@@ -87,18 +93,20 @@ private fun s(off: Int, op: Opcode, ref: String?, regs: List<Int>, event: String
 private val targets = listOf(
     Target("classes.dex", "Lrzm;->nu()Ljava/lang/Object;", 60, listOf(
         s(0x0912, Opcode.IPUT_OBJECT, "Lrqa;->am:Llpu;", listOf(2,0), "controller", 0,2, after=true, before=a(Opcode.MOVE_RESULT_OBJECT, null, 2))
-    )),
+    ), entryEvent="reach_controller"),
     Target("classes4.dex", "Lrqa;->t(Landroid/os/Bundle;Lakmv;Lamqu;)V", 12, listOf(
         s(0x008f, Opcode.INVOKE_STATIC, "Lrqa;->v(Lakmq;Ltip;)Lakmq;", listOf(0,1), "watch_t_pre",4,0),
         s(0x0095, Opcode.INVOKE_VIRTUAL, "Latnz;->ao(Lakmq;Lamqu;Landroid/os/Bundle;Z)V", listOf(4,0,11,9,1), "watch_t_post",4,0)
-    )),
+    ), entryEvent="reach_watch_t"),
     Target("classes4.dex", "Lrqa;->s(Lakmv;)V", 6, listOf(
         s(0x003f, Opcode.INVOKE_STATIC, "Lrqa;->v(Lakmq;Ltip;)Lakmq;", listOf(5,0), "watch_s_pre",1,5),
         s(0x0043, Opcode.INVOKE_VIRTUAL, "Latnz;->ay(Lakmq;)V", listOf(1,5), "watch_s_post",1,5)
-    )),
+    ), entryEvent="reach_watch_s"),
     Target("classes4.dex", "Lrsh;->a(Ljava/lang/Object;Latsx;Latsp;)Latqo;", 21, listOf(
+        s(0x0023, Opcode.MOVE_RESULT, null, listOf(2), "bind_predicate",1,20, after=true, num=2,
+            before=a(Opcode.INVOKE_STATIC, "Lrrn;->C(Lakmn;)Z", 1), following=a(Opcode.IF_EQZ, null, 2)),
         s(0x005f, Opcode.INVOKE_VIRTUAL, "Latqv;->j(Lakmn;)V", listOf(2,1), "section_bind",2,1,20)
-    )),
+    ), entryEvent="reach_section_bind"),
     Target("classes4.dex", "Lltq;->a(Lasdi;Lasdg;)V", 9, listOf(
         s(0x0000, Opcode.IGET, "Lltq;->b:I", listOf(8,6), null, saves=mapOf(-1 to 6,-2 to 8)),
         s(0x0127, Opcode.IGET_OBJECT, "Lbggp;->e:Lbadh;", listOf(3,8), "update_input",2,8,-1,-2),
@@ -169,6 +177,45 @@ private val targets = listOf(
     Target("classes2.dex", "Lastr;->k(Lastj;Liev;Lxcv;Latiq;Lbsot;)Lieq;", 13, listOf(
         s(0x0000, Opcode.IGET_OBJECT, "Lampz;->a:Lampe;", listOf(0,11), null, saves=mapOf(-1 to 11)),
         s(0x000f, Opcode.INVOKE_VIRTUAL_RANGE, "Lvwn;->b(Liev;Lxcv;Lastj;Lxds;Lbsot;)Lieq;", (1..6).toList(), "root_row",-1,4,2,3)
+    )),
+    // Actual app predicate, preserve its input before the parameter is reused.
+    Target("classes.dex", "Lrrn;->C(Lakmn;)Z", 3, listOf(
+        s(0x0000, Opcode.CONST_4, null, listOf(0), null, saves=mapOf(-1 to 2),
+            following=a(Opcode.IF_EQZ,null,2),following2=a(Opcode.IGET_OBJECT,"Lakmn;->a:Lbggp;",2,2)),
+        s(0x0005, Opcode.IGET, "Lbggp;->c:I",listOf(1,2),null,
+            following=a(Opcode.AND_INT_LIT8,null,1,1)),
+        s(0x000b, Opcode.IGET_OBJECT, "Lbggp;->i:Ljava/lang/String;",listOf(2,2),null,
+            following=a(Opcode.CONST_STRING,"related-items",1))
+    ),predicateReturns=true),
+    Target("classes4.dex", "Lrrx;->d()V", 3, listOf(
+        s(0x004e, Opcode.INVOKE_VIRTUAL, "Lrrx;->e(Ljava/lang/String;)V",listOf(2,0),"lookup_request",2,0,
+            before=a(Opcode.CONST_STRING,"related-items",0))
+    )),
+    // Observe the existing Optional results and actual get() results, never call get() ourselves.
+    Target("classes.dex", "Lptf;->a(Ljava/lang/Object;)V",11,listOf(
+        s(0x0093,Opcode.MOVE_RESULT_OBJECT,null,listOf(1),"lookup_optional_first",10,1,10,-1,
+            after=true,saves=mapOf(-1 to 0),before=a(Opcode.INVOKE_VIRTUAL,"Llpu;->lJ(Ljava/lang/String;)Lj$/util/Optional;",10,0),
+            following=a(Opcode.IGET_OBJECT,"Lptf;->b:Ljava/lang/Object;",9,9)),
+        s(0x0096,Opcode.CHECK_CAST,"Lrrx;",listOf(9),null,after=true,saves=mapOf(-2 to 9),
+            following=a(Opcode.IGET_OBJECT,"Lrrx;->c:Ljava/util/function/Supplier;",3,9)),
+        s(0x009d,Opcode.MOVE_RESULT,null,listOf(4),"lookup_empty_first",-2,1,10,-1,after=true,num=4,
+            before=a(Opcode.INVOKE_VIRTUAL,"Lj$/util/Optional;->isEmpty()Z",1),
+            following=a(Opcode.IF_NEZ,null,4)),
+        s(0x00a3,Opcode.MOVE_RESULT_OBJECT,null,listOf(4),"lookup_result_first",-2,4,10,-1,after=true,
+            before=a(Opcode.INVOKE_VIRTUAL,"Lj$/util/Optional;->get()Ljava/lang/Object;",1),
+            following=a(Opcode.INSTANCE_OF,"Lrrn;",4,4)),
+        s(0x00b9,Opcode.MOVE_RESULT_OBJECT,null,listOf(1),"lookup_result_confirmed",-2,1,10,-1,after=true,
+            before=a(Opcode.INVOKE_VIRTUAL,"Lj$/util/Optional;->get()Ljava/lang/Object;",1),
+            following=a(Opcode.CHECK_CAST,"Lrrn;",1)),
+        s(0x00d1,Opcode.MOVE_RESULT_OBJECT,null,listOf(9),"lookup_optional_second",-2,9,10,-1,after=true,
+            before=a(Opcode.INVOKE_VIRTUAL,"Llpu;->lJ(Ljava/lang/String;)Lj$/util/Optional;",10,0),
+            following=a(Opcode.INVOKE_VIRTUAL,"Lj$/util/Optional;->isPresent()Z",9)),
+        s(0x00d5,Opcode.MOVE_RESULT,null,listOf(0),"lookup_present_second",-2,9,10,-1,after=true,num=0,
+            before=a(Opcode.INVOKE_VIRTUAL,"Lj$/util/Optional;->isPresent()Z",9),
+            following=a(Opcode.IF_EQZ,null,0)),
+        s(0x00db,Opcode.MOVE_RESULT_OBJECT,null,listOf(9),"lookup_result_second",-2,9,10,-1,after=true,
+            before=a(Opcode.INVOKE_VIRTUAL,"Lj$/util/Optional;->get()Ljava/lang/Object;",9),
+            following=a(Opcode.INVOKE_INTERFACE,"Latqo;->a()Lathm;",9))
     ))
 )
 
@@ -211,8 +258,28 @@ private fun descriptor(m: MutableMethod) = "${m.definingClass}->${m.name}(${m.pa
 private data class Checked(val target: Target, val method: MutableMethod, val resolution: Resolution)
 
 private fun verifyTarget(t: Target): Checked {
-    val owner = t.descriptor.substringBefore("->")
-    val m = mutableClassDefBy(owner).methods.single { descriptor(it) == t.descriptor }
+    // Exact target version: use the standard fingerprint to locate the signature
+    // and at least one semantic reference, then prove every local insertion site.
+    val owner=t.descriptor.substringBefore("->")
+    val name=t.descriptor.substringAfter("->").substringBefore("(")
+    val raw=classDefBy(owner).methods.singleOrNull {
+        "${it.definingClass}->${it.name}(${it.parameterTypes.joinToString("")})${it.returnType}"==t.descriptor
+    } ?: throw IllegalArgumentException("Missing target signature ${t.descriptor}")
+    val references=t.sites.mapNotNull { it.reference ?: it.before?.reference }.toSet() +
+        if(owner=="Lastj;")setOf("Lastj;->c:[B") else emptySet()
+    val fingerprint=Fingerprint(definingClass=owner,name=name,
+        parameters=raw.parameterTypes.map { it.toString() },returnType=raw.returnType,
+        filters=when {
+            t.predicateReturns||name=="d"&&owner=="Lrrx;" -> listOf(string("related-items"))
+            owner=="Lvpo;"&&name=="b" -> listOf(string("Failed to parse Element",StringComparisonType.STARTS_WITH))
+            else -> null
+        },
+        custom={ method,_ -> method.implementation?.instructions?.any { ins ->
+            (ins as? ReferenceInstruction)?.reference?.toString() in references
+        }==true })
+    fingerprint.clearMatch()
+    val m=fingerprint.matchAll(1..1).single().method
+    require(descriptor(m)==t.descriptor) { "Fingerprint signature changed: ${t.descriptor}" }
     val count = m.implementation!!.registerCount
     val instructions = m.implementation!!.instructions.toList()
     val resolution = resolveSites(t, instructions, count, parameterTypes(m))
@@ -269,6 +336,23 @@ private fun instrument(c: Checked) {
             args=site.args.map(::live), number=site.number?.let(::live),
             saves=site.saves.mapValues { live(it.value) })
     }.toMutableList()
+    if(c.target.entryEvent!=null){
+        // Parameter bank is live here, including verified official cloneParameters copies.
+        val params=workingParameters(originalInstructions,count,parameterTypes(old),c.target.registers).second
+        val args=when(c.target.entryEvent){
+            "reach_watch_t" -> listOf(params[0],params[2])
+            "reach_watch_s","reach_section_bind" -> listOf(params[0],params[1])
+            else -> listOf(params[0])
+        }
+        injections += copied.entry to Site(-1,originalInstructions[copied.entry].opcode,event=c.target.entryEvent,args=args)
+    }
+    if(c.target.predicateReturns){
+        originalInstructions.forEachIndexed { index,insn ->
+            if(insn.opcode==Opcode.RETURN)
+                injections += index to Site(-1,insn.opcode,event="predicate",args=listOf(-1),
+                    number=(insn as OneRegisterInstruction).registerA)
+        }
+    }
     if (c.target.returns) {
         originalInstructions.forEachIndexed { index, insn ->
             if (insn.opcode == Opcode.RETURN_OBJECT)
@@ -316,7 +400,36 @@ val relatedItemsProbePatch = patch(
         targets=listOf(AppTarget(version="21.30.216"))))
     extendWith("extensions/extension.mpe")
     execute {
-        val checked = targets.map(::verifyTarget)
+        // Resolve everything before mutation. A missing/ambiguous anchor skips its
+        // dependency group; errors during actual mutation still abort the build.
+        fun group(t:Target)=when {
+            t.predicateReturns -> "predicate"
+            t.descriptor.startsWith("Lrrx;")||t.descriptor.startsWith("Lptf;") -> "lookup"
+            t.descriptor.startsWith("Latjd;")||t.descriptor.startsWith("Lastr;") -> "rows"
+            t.descriptor.startsWith("Lastj;")||t.descriptor.startsWith("Lvwn;")||
+                t.descriptor.startsWith("Lvpo;")||t.descriptor.startsWith("Lvpn;") -> "elements"
+            else -> "upstream"
+        }
+        val checked=mutableListOf<Checked>()
+        val coverage=mutableListOf<Map<String,Any>>()
+        for((key,members) in targets.groupBy(::group)){
+            val resolved=mutableListOf<Checked>()
+            var reason:String?=null
+            for(t in members){
+                try{resolved+=verifyTarget(t)}
+                catch(e:IllegalArgumentException){reason=e.message?:"anchor_validation"}
+                catch(e:PatchException){reason=e.message?:"fingerprint_validation"}
+                if(reason!=null)break
+            }
+            if(reason==null)checked+=resolved
+            for(t in members) coverage+=mapOf("group" to key,"method" to t.descriptor,
+                "sites" to t.sites.map { it.offset.toString(16)+":"+(it.event?:if(it.saves.isEmpty())"check" else "save") }+
+                    listOfNotNull(t.entryEvent,if(t.returns)"element_exit" else null,if(t.predicateReturns)"predicate_returns" else null),
+                "status" to if(reason==null)"installed" else "skipped",
+                "reason" to (reason?:"verified"))
+            println("Related probe coverage: $key ${if(reason==null)"installed" else "skipped: $reason"}")
+        }
+        require(checked.isNotEmpty()) { "No safe diagnostic groups" }
         val settings = mutableClassDefBy("Lgek;").methods.single {
             descriptor(it) == "Lgek;->u(Landroidx/preference/PreferenceScreen;)V"
         }
@@ -334,6 +447,19 @@ val relatedItemsProbePatch = patch(
         val scratch = second.registersUsed[0]
         require(scratch !in settingsParams && scratch < 16 && receiver < 16)
         checked.forEach(::instrument)
+        val coverageMethod=mutableClassDefBy(PROBE).methods.single {
+            it.name=="coverageManifest" && it.parameterTypes.isEmpty() && it.returnType=="Ljava/lang/String;"
+        }
+        // No external serialization dependency in the Manager patch classloader.
+        fun quote(s:String)="\""+s.replace("\\","\\\\").replace("\"","\\\"")
+            .replace("\n","\\n").replace("\r","\\r").replace("\t","\\t")+"\""
+        val json=coverage.joinToString(",","[","]"){ row ->
+            row.entries.joinToString(",","{","}"){(k,v)->
+                quote(k)+":"+if(v is List<*>)v.joinToString(",","[","]"){quote(it.toString())}
+                    else quote(v.toString())
+            }
+        }
+        coverageMethod.addInstructions(0,"const-string v0, "+quote(json)+"\nreturn-object v0")
         // Native settings fallback, identical gate to the existing patch.
         app.morphe.patcher.extensions.InstructionExtensions.run {
             settings.addInstructionsWithLabels(settingsEntry, """
@@ -348,7 +474,7 @@ val relatedItemsProbePatch = patch(
         resourceFile("morphe_addon_prefs.xml").writeText("""
             <morphe-add-on-preferences xmlns:android="http://schemas.android.com/apk/res/android">
                 <screen>
-                    <Preference android:key="rikunode_viewcount_settings"
+                    <Preference android:key="rikunode_relatedprobe_settings"
                         android:title="Related items diagnostic probe"
                         android:summary="Observation-only JSON Lines"
                         ><intent android:action="android.intent.action.VIEW"

@@ -1,5 +1,19 @@
 # Rikunode 再生回数フィルタ（YouTube向け）
 
+
+## v0.1.14: separated diagnostic source
+
+The existing repository source is filter-only. To collect related-items diagnostics, add this **separate JSON source URL** in Morphe Manager:
+
+https://raw.githubusercontent.com/rikunode/youtube-view-count-filter-patches/main/diagnostic/patches-bundle.json
+
+Enable prereleases if required. Select only Related items diagnostic probe alongside the official patches; disable/unselect the independent View count filter source. Do not select both. The separate diagnostic MPP is also available from the release assets. Prefer the remote JSON source over local import, since both bundles retain the existing bundle display name.
+
+Open the diagnostic settings, wait for writer-ready, and start a new run for each capture. Recreate the watch controller after starting. Stop and export each run before starting another. A partial run or a dropped event is not proof that the associated hook or event is absent.
+
+See verification/README.md for the release acceptance procedure.
+
+
 YouTubeのフィードを再生回数でフィルタする**非公式・独立した第三者パッチ**です。Morphe公式、Google、YouTube、Anddea、ReVancedとの提携・公認関係はありません。
 
 [English README](README.md) · [技術設計と検証](DESIGN.md) · [ライセンス](LICENSE) · [権利表示](NOTICE)
